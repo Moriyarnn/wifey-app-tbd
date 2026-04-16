@@ -1,0 +1,33 @@
+name: wifey-uat
+
+services:
+  frontend:
+    container_name: wifey-uat-frontend
+    build:
+      context: ./wifey-app-frontend
+      target: build
+      args:
+        BUILD_MODE: uat
+    ports:
+      - "5175:5173"
+    depends_on:
+      - backend
+    restart: always
+
+  backend:
+    container_name: wifey-uat-backend
+    build: ./wifey-app-backend
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./wifey-app-backend:/app
+      - /app/node_modules
+      - sqlite_data_uat:/app/data
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - ./wifey-app-backend/.env.uat
+    restart: unless-stopped
+
+volumes:
+  sqlite_data_uat:
