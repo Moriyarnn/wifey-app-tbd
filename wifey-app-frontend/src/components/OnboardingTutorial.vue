@@ -28,8 +28,7 @@
                         class="mc-cell"
                         :class="{
                           'drag-filled': dragFilled.has(i),
-                          'drag-anchor-first': dragAnchorFirst === i,
-                          'drag-anchor-last': dragAnchorLast === i
+                          'drag-anchor': dragAnchorFirst === i || dragAnchorLast === i
                         }"
                       >
                         <span class="mc-num">{{ i }}</span>
@@ -39,11 +38,10 @@
                     <div
                       class="finger-wrap"
                       :class="{ 'finger-wrap--dragging': pointerDragging }"
-                      :style="{ left: pointerX + 'px', opacity: pointerVisible ? 1 : 0 }"
+                      :style="{ left: pointerX + 'px', top: pointerY + 'px', opacity: pointerVisible ? 1 : 0 }"
                     >
                       <div class="finger-dot" :class="{ pressing: pointerPressing }" />
                     </div>
-
                   </div>
                 </div>
                 <p class="slide-title">Log a past period</p>
@@ -52,36 +50,33 @@
                 </p>
               </template>
 
-              <!-- Slide 2: tap days + bookend -->
+              <!-- Slide 2: adjust cycle — two-row grid, extend both ends -->
               <template v-else-if="slide === 2">
                 <div class="anim-area">
                   <div class="cal-wrap">
-                    <div class="mini-cal">
+                    <div class="mini-cal mini-cal--grid">
                       <div
-                        v-for="i in 7" :key="i"
+                        v-for="i in 14" :key="i"
                         class="mc-cell"
-                        :class="{
-                          'tap-filled': tapFilled.has(i),
-                          'gap-filled': gapFilled.has(i)
-                        }"
+                        :class="getAdjCellClass(i)"
                       >
-                        <span class="mc-num">{{ i }}</span>
+                        <span class="mc-num">{{ ((i - 1) % 7) + 1 }}</span>
                       </div>
                     </div>
                     <!-- Finger pointer -->
                     <div
                       class="finger-wrap"
                       :class="{ 'finger-wrap--slow': pointerSlow }"
-                      :style="{ left: pointerX + 'px', opacity: pointerVisible ? 1 : 0 }"
+                      :style="{ left: pointerX + 'px', top: pointerY + 'px', opacity: pointerVisible ? 1 : 0 }"
                     >
-                      <div class="finger-dot" :class="{ tapping: pointerTapping }" />
+                      <div class="finger-dot" :class="{ pressing: pointerPressing }" />
+                      <div v-if="pointerHolding" class="hold-ring" />
                     </div>
                   </div>
                 </div>
-                <p class="slide-title">Track as it happens</p>
+                <p class="slide-title">Adjust a cycle</p>
                 <p class="slide-body">
-                  Tap each day as your period goes on, then set an end date —
-                  missed days fill in automatically.
+                  Hold any period day to enter adjust mode, then drag either edge handle to extend or shrink the cycle.
                 </p>
               </template>
 
@@ -136,16 +131,22 @@ const slide   = ref(1)
 const dragFilled      = ref(new Set())
 const dragAnchorFirst = ref(null)
 const dragAnchorLast  = ref(null)
-const tapFilled  = ref(new Set())
-const gapFilled  = ref(new Set())
+const tapFilled       = ref(new Set())  // kept for resetState compat
+const adjustHandles   = ref(new Set())
+
+// Adjust cycle state (slide 2)
+const adjCycleStart = ref(0)
+const adjCycleEnd   = ref(0)
 
 // Pointer state
 const pointerX        = ref(0)
+const pointerY        = ref(0)
 const pointerVisible  = ref(false)
 const pointerPressing = ref(false)
 const pointerDragging = ref(false)
 const pointerTapping  = ref(false)
 const pointerSlow     = ref(false)
+const pointerHolding  = ref(false)
 
 // Symptom animation state
 const dayPulse     = ref(false)
@@ -159,15 +160,54 @@ function clearTimers() {
   timers.length = 0
 }
 
-// Cell center x-positions — mirrors the CSS clamp() formula so JS always matches rendered size
-// card = min(90vw, 480px), card inner = card - 56px, 7 cells + 6 gaps of 6px
-function cx(i) {
+// ── Cell geometry ─────────────────────────────────────────────────
+// Mirrors the CSS clamp() formula so JS positions always match rendered cells.
+// card = min(90vw, 480px), inner = card - 92px, 7 cells + 6 gaps of 6px
+function getCS() {
   const cardWidth = Math.min(window.innerWidth * 0.9, 480)
-  const cellSize  = Math.min(52, Math.max(24, (cardWidth - 92) / 7))
-  return (i - 1) * (cellSize + 6) + cellSize / 2
+  return Math.min(52, Math.max(24, (cardWidth - 92) / 7))
 }
 
-// ── Drag animation ───────────────────────────────────────────────
+// Slide 1: cell i (1–7) x-center
+function cx(i) {
+  const cs = getCS()
+  return (i - 1) * (cs + 6) + cs / 2
+}
+
+// Slide 1: single-row pointer y (cell center minus dot half-height)
+function slide1Cy() {
+  return getCS() / 2 - 10
+}
+
+// Slide 2: cell i (1–14) x-center — column wraps every 7
+function cxAdj(i) {
+  const cs = getCS()
+  return ((i - 1) % 7) * (cs + 6) + cs / 2
+}
+
+// Slide 2: cell i (1–14) pointer y
+function cyAdj(i) {
+  const cs = getCS()
+  const row = Math.floor((i - 1) / 7)
+  return row * (cs + 6) + cs / 2 - 10
+}
+
+// Compute CSS classes for each cell in slide 2's two-row mini calendar
+function getAdjCellClass(i) {
+  const classes = []
+  const start = adjCycleStart.value
+  const end   = adjCycleEnd.value
+  if (i < start || i > end) return classes
+
+  const col = ((i - 1) % 7) + 1   // 1–7
+  classes.push('band-filled')
+  if (i === start || col === 1) classes.push('band-left')
+  if (i === end   || col === 7) classes.push('band-right')
+  if (adjustHandles.value.has(i)) classes.push('adjust-handle')
+  return classes
+}
+
+// ── Slide 1: drag to log ─────────────────────────────────────────
 function startDrag() {
   function loop() {
     dragFilled.value      = new Set()
@@ -177,6 +217,7 @@ function startDrag() {
     pointerPressing.value = false
     pointerDragging.value = false
     pointerX.value        = cx(2)
+    pointerY.value        = slide1Cy()
 
     // Appear and press at cell 2 — hold for ~500ms so the gesture reads clearly
     s(() => { pointerVisible.value = true }, 500)
@@ -211,45 +252,53 @@ function startDrag() {
   loop()
 }
 
-// ── Tap + bookend animation ──────────────────────────────────────
-function startTap() {
-  // Moves pointer to a cell (fast hop) and triggers tap animation
-  function tapCell(cellIdx, arrivalDelay, onFill) {
-    s(() => { pointerX.value = cx(cellIdx); pointerVisible.value = true }, arrivalDelay)
-    s(() => { pointerTapping.value = true },                               arrivalDelay + 180)
-    s(() => { pointerTapping.value = false; onFill() },                    arrivalDelay + 420)
-  }
-
+// ── Slide 2: adjust cycle — hold to enter mode, then drag handle ─
+function startAdjust() {
   function loop() {
-    tapFilled.value       = new Set()
-    gapFilled.value       = new Set()
+    // Cycle pre-fills cells 3–10 (row 1: days 3–7, row 2: days 8–10)
+    adjCycleStart.value   = 3
+    adjCycleEnd.value     = 10
+    adjustHandles.value   = new Set()
     pointerVisible.value  = false
-    pointerTapping.value  = false
+    pointerPressing.value = false
     pointerSlow.value     = false
+    pointerHolding.value  = false
+    pointerX.value        = cxAdj(6)   // interior period cell — hold target
+    pointerY.value        = cyAdj(6)
 
-    tapCell(1,  500,  () => { tapFilled.value = new Set([1]) })
-    tapCell(2, 1300,  () => { tapFilled.value = new Set([1, 2]) })
-    tapCell(3, 2100,  () => { tapFilled.value = new Set([1, 2, 3]) })
+    // ── Phase A: hold an interior cell → adjust mode activates ───
+    // Finger lands on a middle period cell, holds 800ms, then mode fires:
+    // handles appear on both caps and finger lifts — mode is now active.
+    s(() => { pointerVisible.value = true },                                        400)
+    s(() => { pointerPressing.value = true; pointerHolding.value = true },          650)
+    s(() => {
+      pointerHolding.value  = false
+      pointerPressing.value = false
+      adjustHandles.value   = new Set([3, 10])   // mode activates
+    },                                                                             1450)
+    s(() => { pointerVisible.value = false },                                      1650)
 
-    // Switch to slow transition and glide to cell 6 (end date — skipping 4 & 5)
-    s(() => { pointerSlow.value = true; pointerX.value = cx(6) }, 2900)
-    // Tap after the slow 0.60s glide arrives (~2900 + 600 = 3500ms)
-    s(() => { pointerTapping.value = true },                       3600)
-    s(() => { pointerTapping.value = false; tapFilled.value = new Set([1, 2, 3, 6]) }, 3840)
-    s(() => { pointerSlow.value = false },                         3900)
+    // Jump to end handle while invisible; transition finishes before re-show
+    s(() => { pointerX.value = cxAdj(10); pointerY.value = cyAdj(10) },           2000)
 
-    // Pointer lifts, gap fill appears automatically
-    s(() => { pointerVisible.value = false },           4400)
-    s(() => { gapFilled.value = new Set([4, 5]) },      4700)
+    // ── Phase B: drag end handle cell 10 → 12 ───────────────────
+    // A separate gesture now: press the handle, drag 2 cells, release.
+    s(() => { pointerVisible.value = true },                                        2400)
+    s(() => { pointerPressing.value = true },                                       2650)
+    s(() => { pointerSlow.value = true; pointerX.value = cxAdj(12) },              2900)
+    s(() => { adjCycleEnd.value = 11; adjustHandles.value = new Set([3, 11]) },    3550)
+    s(() => { adjCycleEnd.value = 12; adjustHandles.value = new Set([3, 12]) },    4200)
+    s(() => { pointerPressing.value = false; pointerSlow.value = false },           4450)
+    s(() => { pointerVisible.value = false; adjustHandles.value = new Set() },      4650)
 
-    // Reset and loop
-    s(() => { tapFilled.value = new Set(); gapFilled.value = new Set() }, 6600)
-    s(loop,                                                                7200)
+    // Show extended cycle briefly, then reset and loop
+    s(() => { adjCycleStart.value = 3; adjCycleEnd.value = 10 },                   5500)
+    s(loop,                                                                          6000)
   }
   loop()
 }
 
-// ── Symptom animation ────────────────────────────────────────────
+// ── Slide 3: symptom logging ─────────────────────────────────────
 function startSymptom() {
   const chips = ['Cramps', 'Fatigue', 'Mood swings']
   function loop() {
@@ -271,12 +320,17 @@ function resetState() {
   dragAnchorFirst.value = null
   dragAnchorLast.value  = null
   tapFilled.value       = new Set()
-  gapFilled.value       = new Set()
+  adjustHandles.value   = new Set()
+  adjCycleStart.value   = 0
+  adjCycleEnd.value     = 0
+  pointerX.value        = 0
+  pointerY.value        = 0
   pointerVisible.value  = false
   pointerPressing.value = false
   pointerDragging.value = false
   pointerTapping.value  = false
   pointerSlow.value     = false
+  pointerHolding.value  = false
   dayPulse.value        = false
   visibleChips.value    = []
 }
@@ -285,7 +339,7 @@ function startSlideAnim() {
   clearTimers()
   resetState()
   if (slide.value === 1)      startDrag()
-  else if (slide.value === 2) startTap()
+  else if (slide.value === 2) startAdjust()
   else                        startSymptom()
 }
 
@@ -409,11 +463,11 @@ function quickClose() {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  height: clamp(100px, 20vh, 200px);
+  height: clamp(120px, 22vh, 220px);
   padding-top: 10px;
 }
 
-/* ── Calendar wrapper (positions the pointer inside) ─────────── */
+/* ── Calendar wrapper (positions the pointer absolutely inside) ── */
 .cal-wrap {
   position: relative;
 }
@@ -422,11 +476,18 @@ function quickClose() {
 .mini-cal {
   display: flex;
   gap: 6px;
+  /* --cell defined here so grid container and cells share the same value */
+  --cell: clamp(24px, calc((min(90vw, 480px) - 92px) / 7), 52px);
+}
+
+/* Two-row grid layout for slide 2 */
+.mini-cal--grid {
+  display: grid;
+  grid-template-columns: repeat(7, var(--cell));
+  gap: 6px;
 }
 
 .mc-cell {
-  /* mirrors JS cx(): card = min(90vw,480px), inner = card-56px, 7 cells + 6 gaps of 6px */
-  --cell: clamp(24px, calc((min(90vw, 480px) - 92px) / 7), 52px);
   width: var(--cell);
   height: var(--cell);
   border-radius: clamp(6px, calc(var(--cell) * 0.22), 12px);
@@ -446,79 +507,77 @@ function quickClose() {
   transition: color 0.22s ease;
 }
 
+/* ── Slide 1 fill styles ──────────────────────────────────────── */
 .mc-cell.drag-filled {
-  background: #D4537E;
-  border-color: #993556;
-  border-radius: 0;
+  background: #F9D0DE;
+  border-color: #D4537E;
 }
-.mc-cell.drag-filled .mc-num { color: #fff; }
+.mc-cell.drag-filled .mc-num { color: #993556; }
 
-.mc-cell.drag-anchor-first {
-  background: #b83464;
-  border-color: #993556;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-.mc-cell.drag-anchor-first .mc-num { color: #fff; }
-
-.mc-cell.drag-anchor-last {
-  background: #b83464;
-  border-color: #993556;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
-.mc-cell.drag-anchor-last .mc-num { color: #fff; }
-
-/* Single-cell selection: both anchors on same cell — restore full pill */
-.mc-cell.drag-anchor-first.drag-anchor-last {
-  border-radius: clamp(6px, calc(var(--cell) * 0.22), 12px);
+.mc-cell.drag-anchor {
+  transform: scale(1.22);
+  z-index: 2;
+  transition: transform 0.12s cubic-bezier(.4, 0, .2, 1);
 }
 
-@keyframes tap-pulse {
-  0%   { transform: scale(1); }
-  35%  { transform: scale(1.28); }
+/* ── Slide 2 band styles ──────────────────────────────────────── */
+@keyframes band-pop {
+  0%   { transform: scale(0.82); }
+  60%  { transform: scale(1.10); }
   100% { transform: scale(1); }
 }
-.mc-cell.tap-filled {
-  background: #F5A0BC;
-  border-color: #D4537E;
-  animation: tap-pulse 0.34s ease-out;
-}
-.mc-cell.tap-filled .mc-num { color: #993556; }
 
-@keyframes gap-appear {
-  0%   { opacity: 0; transform: scale(0.6); }
-  100% { opacity: 1; transform: scale(1); }
-}
-.mc-cell.gap-filled {
+.mc-cell.band-filled {
   background: #F5A0BC;
   border-color: #D4537E;
-  animation: gap-appear 0.18s ease-out;
+  border-radius: 0;
+  animation: band-pop 0.22s ease-out;
 }
-.mc-cell.gap-filled .mc-num { color: #993556; }
+.mc-cell.band-filled .mc-num { color: #993556; }
+
+/* Left cap: cycle start OR first cell of a new row */
+.mc-cell.band-left {
+  border-top-left-radius: clamp(6px, calc(var(--cell) * 0.22), 12px);
+  border-bottom-left-radius: clamp(6px, calc(var(--cell) * 0.22), 12px);
+}
+
+/* Right cap: cycle end OR last cell of a row */
+.mc-cell.band-right {
+  border-top-right-radius: clamp(6px, calc(var(--cell) * 0.22), 12px);
+  border-bottom-right-radius: clamp(6px, calc(var(--cell) * 0.22), 12px);
+}
+
+/* Handle outline — pulses to signal drag targets */
+@keyframes handle-pulse {
+  0%, 100% { outline-color: #993556; outline-offset: 2px; }
+  50%       { outline-color: #D4537E; outline-offset: 4px; }
+}
+.mc-cell.adjust-handle {
+  outline: 2.5px solid #993556;
+  outline-offset: 2px;
+  animation: handle-pulse 1s ease-in-out infinite;
+}
 
 /* ── Finger pointer ───────────────────────────────────────────── */
 
-/* Outer wrapper: handles left position + opacity transitions */
+/* Outer wrapper: top + left driven by :style binding */
 .finger-wrap {
   position: absolute;
-  top: calc(clamp(24px, calc((min(90vw, 480px) - 92px) / 7), 52px) / 2 - 10px);
   pointer-events: none;
-  /* Center the dot on the left value */
   transform: translateX(-50%);
   z-index: 3;
-  /* Fast by default (drag slide 1 + tap hops slide 2) */
+  /* Default: fast hop between cells */
   transition: left 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.30s ease;
 }
 
-/* Continuous drag sweep — asymmetric curve: slow ramp-up, peak velocity at ~75% of distance, then decelerate */
+/* Slide 1 sweep — asymmetric curve: slow ramp-up, peak velocity ~75%, then decelerate */
 .finger-wrap--dragging {
   transition: left 1.6s cubic-bezier(0.9, 0, 0.8, 1), opacity 0.30s ease;
 }
 
-/* Slow glide — only for the 3→6 bookend jump in slide 2 */
+/* Slide 2 drag — slow deliberate glide across 2 cells */
 .finger-wrap--slow {
-  transition: left 0.60s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
+  transition: left 1.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
 }
 
 /* The visible dot */
@@ -535,6 +594,24 @@ function quickClose() {
 /* Pressed state: scales down while dragging */
 .finger-dot.pressing {
   transform: scale(0.78);
+}
+
+/* Hold ripple ring — expands outward to signal a long-press */
+@keyframes hold-expand {
+  0%   { transform: translate(-50%, -50%) scale(0.5); opacity: 0.9; }
+  70%  { opacity: 0.6; }
+  100% { transform: translate(-50%, -50%) scale(3.2); opacity: 0; }
+}
+.hold-ring {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2.5px solid #D4537E;
+  animation: hold-expand 0.72s ease-out forwards;
+  pointer-events: none;
 }
 
 /* Tap animation: quick press-and-release */

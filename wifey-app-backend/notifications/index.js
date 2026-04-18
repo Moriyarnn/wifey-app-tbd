@@ -39,7 +39,7 @@ async function sendEmail (subject, html) {
   }
   const transport = createTransport()
   await transport.sendMail({
-    from: `"Wifey App 💌" <${process.env.GMAIL_USER}>`, // TODO: App name TBD — update before launch
+    from: `"Wifey App 💌" <${process.env.GMAIL_USER}>`,
     to: process.env.RECIPIENT_EMAIL,
     subject,
     html

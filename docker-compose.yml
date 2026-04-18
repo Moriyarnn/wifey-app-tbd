@@ -8,6 +8,7 @@ services:
       target: build
       args:
         BUILD_MODE: prod
+        VITE_BACKEND_PORT: "3000"
     ports:
       - "5173:5173"
     depends_on:
@@ -27,7 +28,7 @@ services:
       - NODE_ENV=production
     env_file:
       - ./wifey-app-backend/.env
-    restart: unless-stopped
+    restart: always
 
 volumes:
   sqlite_data_prod:

@@ -41,12 +41,14 @@ A 3-slide animated modal shown once on first visit (keyed to `localStorage: wife
 | Slide | Title | Animation |
 |-------|-------|-----------|
 | 1 | Log a past period | Finger dot drags across 5 mini-calendar cells using an asymmetric bezier sweep (`cubic-bezier(0.9,0,0.8,1)`, 1.6s). Anchor cells scale up; filled cells highlight in pink. |
-| 2 | Track as it happens | Finger taps cells 1–3 individually (800ms cadence), glides to cell 6 (bookend), then cells 4–5 auto-fill simultaneously with a snappy 0.18s pop. |
+| 2 | Adjust a cycle | A 14-cell two-row grid (7×2) shows a pre-filled cycle (cells 3–10). **Phase A:** finger lands on an interior cell, a hold-ring ripple expands (0.72s, scale 3.2×), then mode activates — pulsing handles appear on both caps and finger lifts. **Phase B:** finger moves to the end handle, presses, slow-drags 2 cells right (1.3s ease-in-out), cells fill one by one, finger releases. Loop ~6s. |
 | 3 | Make predictions smarter | A day bubble pulses, then symptom chips (Cramps, Fatigue, Mood swings) animate in one by one. |
 
-**Pointer positioning:** The finger dot (`z-index: 3`) sits centered on each cell (`top: cell-size / 2 - 10px`) and always renders above cells, including scaled anchor cells (`z-index: 2`).
+**Pointer positioning:** The finger dot (`z-index: 3`) uses `pointerY` (JS-driven, no CSS transition on `top`) so row-jumps snap instantly while the pointer is hidden. `pointerX` transitions for visible drags only.
 
-**Cell sizing:** Both the JS `cx()` helper and the CSS `--cell` variable use the same `clamp()` formula so pointer positions always align with rendered cells at any screen width.
+**Cell sizing:** `cx()`/`cxAdj()`/`cyAdj()` JS helpers and the CSS `--cell` variable on `.mini-cal` use the same `clamp()` formula so pointer positions always align with rendered cells at any screen width.
+
+**Adjust mode handles:** `.adjust-handle` cells in the tutorial use `handle-pulse` — the same `@keyframes` animation used on `.cal-adjust-handle-start/end` in the real calendar.
 
 **`forceOpen` prop:** Allows the tutorial to be re-opened externally (e.g. from a help button) without clearing the localStorage flag.
 
@@ -56,8 +58,40 @@ A 3-slide animated modal shown once on first visit (keyed to `localStorage: wife
 
 A compact, always-visible hint strip (no modal) showing two looping mini-calendar animations and a static ovulation hint. Intended as an in-context reminder of the two logging methods. Runs its own independent animation timers (`runDrag`, `runTap`) on mount.
 
+## Flow Intensity Colors (#24 — complete)
+
+Calendar cells are tinted by logged flow intensity using HSL CSS variables. The hue is driven by `--flow-hue` (default 340), settable via the hue slider in SettingsSheet. All five states respond to the slider:
+
+| State       | CSS class            | HSL                                   | Text   |
+|-------------|----------------------|---------------------------------------|--------|
+| Default     | `.cal-period`        | `hsl(--flow-hue, 60%, 65%)`           | white  |
+| Spotting    | `.cal-flow-spotting` | `hsl(--flow-hue, 50%, 80%)`           | white  |
+| Light       | `.cal-flow-light`    | `hsl(--flow-hue, 55%, 74%)`           | white  |
+| Medium      | `.cal-flow-medium`   | `hsl(--flow-hue, 65%, 58%)`           | white  |
+| Heavy       | `.cal-flow-heavy`    | `hsl(--flow-hue, 80%, 42%)`           | white  |
+
+`--flow-hue` is initialized from `localStorage` in `App.vue` on mount and updated live by the slider in `SettingsSheet.vue`. The Settings hue slider preview swatches use the same HSL formulas via Vue `computed`.
+
+## Adjust Cycle (#26 — complete)
+
+Users can resize an existing cycle's date range without delete/recreate using a hold+drag interaction:
+
+1. **Hold** any period cell for 500ms → enters adjust mode; movement before 500ms proceeds with normal drag-create
+2. **Handles** appear on the start and end cap cells (`cal-adjust-handle-start` / `cal-adjust-handle-end`, `ew-resize` cursor)
+3. **Drag** a handle left or right to extend or shrink the cycle
+4. **Release** → `PATCH /api/period/cycles/:id/adjust` updates start/end without deleting cycle_days
+5. **Escape** or clicking off a period cell exits adjust mode
+
+**>10-day guard:** Dragging a cycle past 10 days shows a confirmation dialog. Once confirmed, `longCycleWarnedIds` records the cycle ID so further extends in the same session skip the dialog and apply immediately.
+
+**Orphaned days:** When a cycle is shrunk, logged days that fall outside the new range are preserved and badged with an orange `mdi-link-off` icon. Tapping an orphaned day opens a panel explaining the situation and offering a "Delete entry" button.
+
+Gap-fill logic (`fillGapDays`) was removed as part of this work — the `small-gap` tap context is gone.
+
 ## Status
 - UI complete
+- Flow intensity colors: complete (#24)
+- Adjust Cycle: complete (#26) — hold+drag resize, orphaned day badge
 - Period end wiring: pending
 - Bug #1 (justSaved): pending
 - OnboardingTutorial: complete — pending icon update (#22)

@@ -1,3 +1,5 @@
+> Archived — gap-fill logic removed in v0.6.0. Replaced by Adjust Cycle (#26).
+
 # Smart Gap Filling Implementation
 
 This document describes the implementation of smart gap filling logic in the frontend, which automatically fills 1-day gaps between periods without user intervention.

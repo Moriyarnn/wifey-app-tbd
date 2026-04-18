@@ -64,6 +64,22 @@ module.exports = (db) => {
     res.json({ success: true })
   })
 
+  // Adjust cycle start/end without deleting orphaned cycle_days (used by Adjust Cycle feature)
+  router.patch('/:id/adjust', (req, res) => {
+    const { start_date, end_date } = req.body
+    const id = Number(req.params.id)
+    const cycle = db.prepare('SELECT * FROM cycles WHERE id = ?').get(id)
+    if (!cycle) return res.status(404).json({ error: 'Cycle not found' })
+    const newStart = start_date ?? cycle.start_date
+    const newEnd = end_date ?? cycle.end_date
+    if (newEnd && newStart >= newEnd)
+      return res.status(400).json({ error: 'start_date must be before end_date' })
+    db.prepare('UPDATE cycles SET start_date = ?, end_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(newStart, newEnd, id)
+    logPeriodEvent(db, { entity: 'cycle', entity_id: id, action: 'update', cycle_id: id, date: newStart })
+    res.json({ id, start_date: newStart, end_date: newEnd })
+  })
+
   // Set or clear ovulation date for a cycle
   router.patch('/:id/ovulation', (req, res) => {
     const { ovulation_date } = req.body

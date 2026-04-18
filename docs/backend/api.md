@@ -8,6 +8,7 @@
 | POST | `/api/period/cycles/start` | Start a new period `{ start_date }` |
 | PATCH | `/api/period/cycles/:id/start` | Move period start to an earlier date `{ start_date }` |
 | PATCH | `/api/period/cycles/:id/end` | End a period `{ end_date }` |
+| PATCH | `/api/period/cycles/:id/adjust` | Adjust start and/or end date without deleting cycle_days `{ start_date?, end_date? }` |
 | DELETE | `/api/period/cycles/:id` | Delete a cycle |
 
 ## Cycle Days

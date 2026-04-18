@@ -13,6 +13,8 @@ CMD ["npm", "run", "dev"]
 FROM deps AS build
 COPY . .
 ARG BUILD_MODE=prod
+ARG VITE_BACKEND_PORT=3000
+ENV VITE_BACKEND_PORT=${VITE_BACKEND_PORT}
 RUN npx vite build --mode ${BUILD_MODE}
 EXPOSE 5173
 CMD ["npm", "run", "serve"]

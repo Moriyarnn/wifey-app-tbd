@@ -81,11 +81,13 @@
               @mouseenter="onCellMouseEnter(cell)"
             >
               <span v-if="cell.day" class="cal-day-num">{{ cell.day }}</span>
-              <span v-if="cell.day && getDayDot(cell)" class="cal-dot" :class="getDayDot(cell)" />
               <span v-if="cell.dateStr && justSaved.has(cell.dateStr)" class="cal-saved-check">✓</span>
-              <span v-if="cell.day && (hasNote(cell) || hasDataWarning(cell))" class="cal-cell-badges">
+              <span v-if="cell.day && (hasNote(cell) || hasDataWarning(cell) || hasOrphanedData(cell))" class="cal-cell-badges">
                 <span v-if="hasDataWarning(cell)" class="cal-cell-badge cal-cell-badge-warn">
                   <v-icon size="18" color="#f59e0b">mdi-alert</v-icon>
+                </span>
+                <span v-if="hasOrphanedData(cell)" class="cal-cell-badge cal-cell-badge-orphan">
+                  <v-icon size="18" color="#f97316">mdi-link-off</v-icon>
                 </span>
                 <span v-if="hasNote(cell)" class="cal-cell-badge cal-cell-badge-note">
                   <v-icon size="18" color="#94a3b8">mdi-note-text</v-icon>
@@ -137,15 +139,16 @@
           <span class="irregular-text">Your cycles are irregular — predictions may shift as more data is recorded</span>
         </div>
 
-        <!-- Data warnings -->
-        <div v-if="summary?.dataWarnings?.length" class="warnings-card">
+        <!-- Data warnings (backend issues + orphaned days with data) -->
+        <div v-if="allWarnings.length" class="warnings-card">
           <button class="warnings-header" @click="warningsOpen = !warningsOpen">
             <v-icon size="14" color="#b45309">mdi-alert-outline</v-icon>
-            <span class="warnings-title">{{ summary.dataWarnings.length }} data issue{{ summary.dataWarnings.length > 1 ? 's' : '' }} affecting predictions</span>
+            <span class="warnings-title">{{ allWarnings.length }} data issue{{ allWarnings.length > 1 ? 's' : '' }} affecting predictions</span>
             <v-icon size="14" color="#b45309" :style="{ transform: warningsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }">mdi-chevron-down</v-icon>
           </button>
           <ul v-if="warningsOpen" class="warnings-list">
-            <li v-for="(w, i) in summary.dataWarnings" :key="i" class="warning-item" @click="goToWarning(w)">
+            <li v-for="(w, i) in allWarnings" :key="i" class="warning-item" :class="{ 'warning-item-orphan': w.isOrphaned }" @click="goToWarning(w)">
+              <v-icon v-if="w.isOrphaned" size="11" color="#f97316" style="margin-right:4px;vertical-align:middle">mdi-link-off</v-icon>
               {{ w.message }}
             </li>
           </ul>
@@ -174,6 +177,22 @@
           <button class="confirm-delete" @click="deleteCycle" :disabled="deletingCycle">
             {{ deletingCycle ? 'Deleting...' : 'Yes, delete' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Long cycle warning dialog -->
+    <div class="confirm-backdrop" :class="{ visible: showLongCycleDialog }" @click="showLongCycleDialog = false" />
+    <div class="confirm-modal" :class="{ open: showLongCycleDialog }">
+      <div class="confirm-inner">
+        <div class="confirm-icon">
+          <v-icon size="28" color="#b45309">mdi-calendar-alert-outline</v-icon>
+        </div>
+        <p class="confirm-title">Unusually long cycle</p>
+        <p class="confirm-desc">This would make the period <strong>{{ longCycleDays }} days</strong> long — most periods last 3–7 days.<br><span style="font-size:11px;color:#b45309;">Are you sure you want to apply this change?</span></p>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" @click="cancelLongCycleAdjust">Cancel</button>
+          <button class="confirm-delete" style="background:#b45309" @click="confirmLongCycleAdjust">Yes, apply</button>
         </div>
       </div>
     </div>
@@ -238,13 +257,24 @@
 
         <!-- VIEW mode content -->
         <template v-if="mode === 'view'">
-          <div v-if="selectedLoggedDay" class="view-content">
+          <!-- Orphaned day: logged data outside cycle range -->
+          <div v-if="tapContext === 'orphaned'" class="orphaned-notice">
+            <v-icon size="36" color="#f97316">mdi-link-off</v-icon>
+            <p>This day has logged data but is outside your cycle range.</p>
+            <p>Delete this entry or adjust the cycle to include it.</p>
+            <button class="delete-orphan-btn" @click="deleteOrphanedDay">
+              <v-icon size="14" color="#c0392b">mdi-delete-outline</v-icon>
+              Delete entry
+            </button>
+          </div>
+
+          <div v-else-if="selectedLoggedDay" class="view-content">
             <!-- Flow intensity -->
             <div class="view-section">
               <p class="view-section-label">Flow</p>
               <div class="flow-chips">
                 <span
-                  v-for="level in ['light','medium','heavy']"
+                  v-for="level in ['spotting','light','medium','heavy']"
                   :key="level"
                   class="flow-chip"
                   :class="{ 'flow-chip-active': selectedLoggedDay.flow_intensity === level }"
@@ -319,18 +349,12 @@
         <!-- LOG mode content -->
         <template v-else>
           <div class="log-form">
-            <!-- Gap fill notice -->
-            <div v-if="tapContext === 'small-gap' && gapFillLabel" class="gap-fill-notice">
-              <v-icon size="14" color="#D4537E">mdi-information-outline</v-icon>
-              {{ gapFillLabel }}
-            </div>
-
             <!-- Flow intensity -->
             <div class="form-section">
               <p class="form-label">Flow intensity</p>
               <div class="flow-chips">
                 <button
-                  v-for="level in ['light','medium','heavy']"
+                  v-for="level in ['spotting','light','medium','heavy']"
                   :key="level"
                   class="flow-chip flow-chip-btn"
                   :class="{ 'flow-chip-active': form.flow_intensity === level }"
@@ -422,6 +446,17 @@ const mode = ref('view') // set automatically on day click
 const saving = ref(false)
 const justSaved = ref(new Set())
 
+function flashDates(dates) {
+  for (const d of dates) {
+    justSaved.value = new Set([...justSaved.value, d])
+    setTimeout(() => {
+      const next = new Set(justSaved.value)
+      next.delete(d)
+      justSaved.value = next
+    }, 1200)
+  }
+}
+
 // Month slide animation
 const slideDirection = ref('left')
 
@@ -449,6 +484,12 @@ const creating = ref(false)
 // Delete cycle dialog
 const showDeleteCycleDialog = ref(false)
 const deletingCycle = ref(false)
+
+// Long cycle warning dialog
+const showLongCycleDialog = ref(false)
+const longCycleDays = ref(0)
+const longCyclePendingFn = ref(null)
+const longCycleWarnedIds = new Set() // cycle IDs already warned this session
 
 // Adjacency dialog — shown when a tapped date sits immediately next to an existing cycle
 const adjacencyDialog = ref({ show: false, prevCycle: null, nextCycle: null, pendingCell: null, working: false })
@@ -482,8 +523,15 @@ function cycleRangeLabel(cycle) {
 const markingOvulation = ref(false)
 
 // Day-by-day logging
-const tapContext = ref(null) // 'no-cycle' | 'consecutive' | 'small-gap' | 'large-gap' | 'closed-cycle' | 'open-cycle-day'
+const tapContext = ref(null) // 'no-cycle' | 'consecutive' | 'large-gap' | 'closed-cycle' | 'open-cycle-day' | 'orphaned'
 const endingPeriod = ref(false)
+
+// Adjust Cycle mode
+const adjustingCycleId = ref(null)
+const adjustHandle = ref(null)       // 'start' | 'end'
+const adjustHoldTimer = ref(null)
+const adjustDragActive = ref(false)
+const adjustPreviewDate = ref(null)
 
 // Data from API
 const allCycleDays = ref([])   // { id, cycle_id, date, flow_intensity, notes, symptoms (csv), cycle_start, cycle_end }
@@ -800,28 +848,6 @@ const warningDateSet = computed(() => {
   return set
 })
 
-// True first day of each cycle (for drop marker)
-const periodStartSet = computed(() => {
-  const set = new Set()
-  allCycles.value.forEach(c => { if (c.start_date) set.add(c.start_date) })
-  return set
-})
-
-// True last day of completed cycles (for end marker)
-const periodEndSet = computed(() => {
-  const set = new Set()
-  allCycles.value.forEach(c => { if (c.end_date) set.add(c.end_date) })
-  return set
-})
-
-// Last logged day of active (open) cycles (for pulse indicator)
-const periodOpenSet = computed(() => {
-  const set = new Set()
-  allCycles.value.forEach(c => {
-    if (!c.end_date && c.last_logged_day) set.add(c.last_logged_day)
-  })
-  return set
-})
 
 // The single cycle with no end_date (day-by-day active period)
 // Returns the open cycle most relevant to a given date:
@@ -840,22 +866,98 @@ const relevantActiveCycle = computed(() => {
   return findRelevantOpenCycle(ds)
 })
 
-const gapFillLabel = computed(() => {
-  if (tapContext.value !== 'small-gap') return ''
-  const active = relevantActiveCycle.value
-  if (!active || !selectedCell.value?.dateStr) return ''
-  const fromStr = active.last_logged_day || active.start_date
-  const toStr = selectedCell.value.dateStr
-  const fmt = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
-  const fillStart = new Date(fromStr + 'T00:00:00')
-  fillStart.setDate(fillStart.getDate() + 1)
-  const fillEnd = new Date(toStr + 'T00:00:00')
-  fillEnd.setDate(fillEnd.getDate() - 1)
-  const fillStartStr = fillStart.toISOString().split('T')[0]
-  const fillEndStr = fillEnd.toISOString().split('T')[0]
-  if (fillStartStr === fillEndStr) return `This will also fill ${fmt(fillStartStr)}`
-  return `This will also fill ${fmt(fillStartStr)} through ${fmt(fillEndStr)}`
+const adjustCycle = computed(() =>
+  adjustingCycleId.value
+    ? allCycles.value.find(c => c.id === adjustingCycleId.value) ?? null
+    : null
+)
+
+// Cells being added to the cycle during an active drag (ghost preview)
+const adjustGhostDates = computed(() => {
+  if (!adjustDragActive.value || !adjustPreviewDate.value || !adjustCycle.value) return new Set()
+  const ac = adjustCycle.value
+  const set = new Set()
+  if (adjustHandle.value === 'end') {
+    const current = ac.end_date || ac.last_logged_day
+    if (!current || adjustPreviewDate.value <= current) return set
+    let d = new Date(current + 'T00:00:00'); d.setDate(d.getDate() + 1)
+    const end = new Date(adjustPreviewDate.value + 'T00:00:00')
+    while (d <= end) { set.add(d.toISOString().split('T')[0]); d.setDate(d.getDate() + 1) }
+  } else if (adjustHandle.value === 'start') {
+    const current = ac.start_date
+    if (adjustPreviewDate.value >= current) return set
+    let d = new Date(adjustPreviewDate.value + 'T00:00:00')
+    const end = new Date(current + 'T00:00:00'); end.setDate(end.getDate() - 1)
+    while (d <= end) { set.add(d.toISOString().split('T')[0]); d.setDate(d.getDate() + 1) }
+  }
+  return set
 })
+
+// Cells being removed from the cycle during an active drag
+const adjustRemovingDates = computed(() => {
+  if (!adjustDragActive.value || !adjustPreviewDate.value || !adjustCycle.value) return new Set()
+  const ac = adjustCycle.value
+  const set = new Set()
+  if (adjustHandle.value === 'end') {
+    const current = ac.end_date || ac.last_logged_day
+    if (!current || adjustPreviewDate.value >= current) return set
+    let d = new Date(adjustPreviewDate.value + 'T00:00:00'); d.setDate(d.getDate() + 1)
+    const end = new Date(current + 'T00:00:00')
+    while (d <= end) { set.add(d.toISOString().split('T')[0]); d.setDate(d.getDate() + 1) }
+  } else if (adjustHandle.value === 'start') {
+    const current = ac.start_date
+    if (adjustPreviewDate.value <= current) return set
+    let d = new Date(current + 'T00:00:00')
+    const end = new Date(adjustPreviewDate.value + 'T00:00:00'); end.setDate(end.getDate() - 1)
+    while (d <= end) { set.add(d.toISOString().split('T')[0]); d.setDate(d.getDate() + 1) }
+  }
+  return set
+})
+
+// True when the current adjust drag preview would land on dates owned by another cycle
+const adjustHasOverlap = computed(() => {
+  if (!adjustDragActive.value || !adjustGhostDates.value.size) return false
+  for (const date of adjustGhostDates.value) {
+    const cycleId = dateToCycleId.value.get(date)
+    if (cycleId && cycleId !== adjustingCycleId.value) return true
+  }
+  // Also check the landing cell itself
+  if (adjustPreviewDate.value) {
+    const cycleId = dateToCycleId.value.get(adjustPreviewDate.value)
+    if (cycleId && cycleId !== adjustingCycleId.value) return true
+  }
+  return false
+})
+
+const orphanedDaySet = computed(() => {
+  const set = new Set()
+  const cycleMap = Object.fromEntries(allCycles.value.map(c => [c.id, c]))
+  for (const day of allCycleDays.value) {
+    const cycle = cycleMap[day.cycle_id]
+    if (!cycle) continue
+    const isOutside = day.date < cycle.start_date || (cycle.end_date && day.date > cycle.end_date)
+    if (!isOutside) continue
+    // Only flag days that have actual data — empty orphaned days are auto-deleted on adjust commit
+    if (day.flow_intensity || day.notes || (day.symptoms && day.symptoms.trim()))
+      set.add(day.date)
+  }
+  return set
+})
+
+const orphanedWarnings = computed(() => {
+  const fmt = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return [...orphanedDaySet.value].sort().map(date => ({
+    message: `${fmt(date)}: Logged data is outside your cycle range`,
+    targetDate: date,
+    affectedDates: [date],
+    isOrphaned: true
+  }))
+})
+
+const allWarnings = computed(() => [
+  ...(summary.value?.dataWarnings ?? []),
+  ...orphanedWarnings.value
+])
 
 function hasNote(cell) {
   return !!(cell.dateStr && loggedDayMap.value[cell.dateStr]?.notes)
@@ -863,6 +965,10 @@ function hasNote(cell) {
 
 function hasDataWarning(cell) {
   return !!(cell.dateStr && warningDateSet.value.has(cell.dateStr))
+}
+
+function hasOrphanedData(cell) {
+  return !!(cell.dateStr && orphanedDaySet.value.has(cell.dateStr))
 }
 
 function goToWarning(w) {
@@ -910,6 +1016,8 @@ function getCellClass(cell, i) {
     if (dragDates.value.has(cell.dateStr)) classes.push('cal-dragging')
     else if (periodDates.value.has(cell.dateStr)) {
       classes.push('cal-period')
+      const flowLevel = loggedDayMap.value[cell.dateStr]?.flow_intensity
+      if (flowLevel) classes.push(`cal-flow-${flowLevel}`)
       const cells = calendarCells.value
       const thisCycleId = dateToCycleId.value.get(cell.dateStr)
       const prevIsPeriod = i > 0 && periodDates.value.has(cells[i - 1].dateStr) && dateToCycleId.value.get(cells[i - 1].dateStr) === thisCycleId
@@ -921,22 +1029,32 @@ function getCellClass(cell, i) {
     else if (markedOvulationDates.value.has(cell.dateStr)) classes.push('cal-ovulation')
     else if (predictedOvulationDates.value.has(cell.dateStr)) classes.push('cal-ovulation')
     else if (fertileDates.value.has(cell.dateStr)) classes.push('cal-fertile')
+    if (adjustingCycleId.value && adjustDragActive.value && adjustPreviewDate.value) {
+      const fadedCellCycleId = dateToCycleId.value.get(cell.dateStr)
+      const fadedIsOverlap = fadedCellCycleId && fadedCellCycleId !== adjustingCycleId.value
+      if (cell.dateStr === adjustPreviewDate.value) {
+        classes.push(fadedIsOverlap ? 'cal-adjust-overlap' : 'cal-adjust-ghost')
+      } else if (adjustGhostDates.value.has(cell.dateStr)) {
+        classes.push(fadedIsOverlap ? 'cal-adjust-overlap' : 'cal-adjust-adding')
+      } else if (adjustRemovingDates.value.has(cell.dateStr)) {
+        classes.push('cal-adjust-removing')
+      }
+    }
     return classes
   }
   if (cell.dateStr === todayStr) classes.push('cal-today')
   if (dragDates.value.has(cell.dateStr)) classes.push('cal-dragging')
   else if (periodDates.value.has(cell.dateStr)) {
     classes.push('cal-period')
+    const flowLevel = loggedDayMap.value[cell.dateStr]?.flow_intensity
+    if (flowLevel) classes.push(`cal-flow-${flowLevel}`)
     // Determine continuous-band shape: round the visual start/end of each period run
     const cells = calendarCells.value
-    const prevIsPeriod = i > 0 && periodDates.value.has(cells[i - 1].dateStr)
-    const nextIsPeriod = i < cells.length - 1 && periodDates.value.has(cells[i + 1].dateStr)
+    const thisCycleId = dateToCycleId.value.get(cell.dateStr)
+    const prevIsPeriod = i > 0 && periodDates.value.has(cells[i - 1].dateStr) && dateToCycleId.value.get(cells[i - 1].dateStr) === thisCycleId
+    const nextIsPeriod = i < cells.length - 1 && periodDates.value.has(cells[i + 1].dateStr) && dateToCycleId.value.get(cells[i + 1].dateStr) === thisCycleId
     if (!prevIsPeriod) classes.push('cal-period-row-start')
     if (!nextIsPeriod) classes.push('cal-period-row-end')
-    // True period boundaries (pseudo-element markers)
-    if (periodStartSet.value.has(cell.dateStr)) classes.push('cal-period-start')
-    if (periodEndSet.value.has(cell.dateStr)) classes.push('cal-period-end')
-    if (periodOpenSet.value.has(cell.dateStr)) classes.push('cal-period-open')
   }
   else if (predictedDates.value.has(cell.dateStr)) classes.push('cal-predicted')
   else if (markedOvulationDates.value.has(cell.dateStr)) classes.push('cal-ovulation')
@@ -944,27 +1062,50 @@ function getCellClass(cell, i) {
   else if (fertileDates.value.has(cell.dateStr)) classes.push('cal-fertile')
   if (cell.day) classes.push('cal-cell-day')
   if (pulseDates.value.has(cell.dateStr)) classes.push('cal-cell-pulse')
+
+  // Adjust Cycle mode: highlight handles and dim other cycles
+  if (adjustingCycleId.value) {
+    const cellCycleId = dateToCycleId.value.get(cell.dateStr)
+    if (cellCycleId === adjustingCycleId.value && adjustCycle.value) {
+      const ac = adjustCycle.value
+      const acEnd = ac.end_date || ac.last_logged_day
+      if (cell.dateStr === ac.start_date) classes.push('cal-adjust-handle-start')
+      else if (cell.dateStr === acEnd) classes.push('cal-adjust-handle-end')
+      else classes.push('cal-adjust-active')
+    } else if (periodDates.value.has(cell.dateStr)) {
+      classes.push('cal-adjust-dimmed')
+    }
+
+    // Ghost preview while dragging
+    if (adjustDragActive.value && adjustPreviewDate.value) {
+      const isOverlapCell = (() => {
+        const cid = dateToCycleId.value.get(cell.dateStr)
+        return cid && cid !== adjustingCycleId.value
+      })()
+      if (cell.dateStr === adjustPreviewDate.value) {
+        classes.push(isOverlapCell ? 'cal-adjust-overlap' : 'cal-adjust-ghost')
+      } else if (adjustGhostDates.value.has(cell.dateStr)) {
+        classes.push(isOverlapCell ? 'cal-adjust-overlap' : 'cal-adjust-adding')
+      } else if (adjustRemovingDates.value.has(cell.dateStr)) {
+        classes.push('cal-adjust-removing')
+      }
+    }
+  }
+
   return classes
 }
 
-function getDayDot(cell) {
-  if (!cell.dateStr) return null
-  if (periodDates.value.has(cell.dateStr)) return 'dot-period'
-  if (markedOvulationDates.value.has(cell.dateStr)) return 'dot-ovulation'
-  if (predictedOvulationDates.value.has(cell.dateStr)) return 'dot-ovulation'
-  if (fertileDates.value.has(cell.dateStr)) return 'dot-fertile'
-  if (predictedDates.value.has(cell.dateStr)) return 'dot-predicted'
-  return null
-}
 
 // ── Month nav ────────────────────────────────────────────────
 function prevMonth() {
   slideDirection.value = 'right'
+  if (adjustDragActive.value) { adjustDragActive.value = false; adjustHandle.value = null; adjustPreviewDate.value = null }
   if (viewMonth.value === 0) { viewMonth.value = 11; viewYear.value-- }
   else viewMonth.value--
 }
 function nextMonth() {
   slideDirection.value = 'left'
+  if (adjustDragActive.value) { adjustDragActive.value = false; adjustHandle.value = null; adjustPreviewDate.value = null }
   if (viewMonth.value === 11) { viewMonth.value = 0; viewYear.value++ }
   else viewMonth.value++
 }
@@ -972,6 +1113,16 @@ function nextMonth() {
 // ── Day panel ────────────────────────────────────────────────
 function onDayClick(cell) {
   const ds = cell.dateStr
+
+  // Orphaned day: has logged data outside its cycle's range
+  if (orphanedDaySet.value.has(ds)) {
+    tapContext.value = 'orphaned'
+    selectedCell.value = cell
+    mode.value = 'view'
+    form.value = { flow_intensity: '', symptoms: [], notes: '' }
+    return
+  }
+
   const logged = loggedDayMap.value[ds]
   const hasMeaningfulData = !!(logged?.flow_intensity || logged?.notes || logged?.symptoms)
 
@@ -1008,9 +1159,8 @@ function onDayClick(cell) {
       const diff = Math.round(
         (new Date(ds + 'T00:00:00') - new Date(lastDay + 'T00:00:00')) / 86400000
       )
-      if (diff === 1)                  context = 'consecutive'
-      else if (diff >= 2 && diff <= 14) context = 'small-gap'
-      else if (diff > 14)              context = 'large-gap'
+      if (diff === 1)   context = 'consecutive'
+      else if (diff > 1) context = 'large-gap'
       else {
         // Tapping before the active cycle or in an unrelated inter-cycle gap
         // Fall through to between-cycles / no-cycle handling below
@@ -1027,7 +1177,7 @@ function onDayClick(cell) {
   }
 
   // Quick-log: immediately save new period days without opening a form
-  if (['no-cycle', 'consecutive', 'small-gap', 'large-gap'].includes(context)) {
+  if (['no-cycle', 'consecutive', 'large-gap'].includes(context)) {
     tapContext.value = context
     form.value = { flow_intensity: '', symptoms: [], notes: '' }
 
@@ -1068,27 +1218,40 @@ function onDayClick(cell) {
 
 async function quickLogDay(cell) {
   const ds = cell.dateStr
-  saving.value = true
-  try {
-    const ok = await _saveCycleDayCore(ds)
-    if (!ok) return
-    justSaved.value = new Set([...justSaved.value, ds])
-    setTimeout(() => {
-      const next = new Set(justSaved.value)
-      next.delete(ds)
-      justSaved.value = next
-    }, 1500)
-    await loadData()
-    const cellEl = document.querySelector(`[data-date="${ds}"]`)
-    const x = cellEl
-      ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2
-      : window.innerWidth / 2
-    const fmt = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
-    const isNew = tapContext.value === 'no-cycle' || tapContext.value === 'large-gap'
-    showHintBubble(x, ds, isNew ? `Period started: ${fmt(ds)}` : `Period day logged: ${fmt(ds)}`, 'green')
-  } finally {
-    saving.value = false
+
+  const doLog = async () => {
+    saving.value = true
+    try {
+      const ok = await _saveCycleDayCore(ds)
+      if (!ok) return
+      justSaved.value = new Set([...justSaved.value, ds])
+      setTimeout(() => {
+        const next = new Set(justSaved.value)
+        next.delete(ds)
+        justSaved.value = next
+      }, 1500)
+      await loadData()
+      const cellEl = document.querySelector(`[data-date="${ds}"]`)
+      const x = cellEl
+        ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2
+        : window.innerWidth / 2
+      const fmt = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+      const isNew = tapContext.value === 'no-cycle' || tapContext.value === 'large-gap'
+      showHintBubble(x, ds, isNew ? `Period started: ${fmt(ds)}` : `Period day logged: ${fmt(ds)}`, 'green')
+    } finally {
+      saving.value = false
+    }
   }
+
+  if (tapContext.value === 'consecutive') {
+    const active = findRelevantOpenCycle(ds)
+    if (active) {
+      const dayCount = (new Date(ds + 'T00:00:00') - new Date(active.start_date + 'T00:00:00')) / 86400000 + 1
+      if (guardLongCycle(dayCount, doLog, active.id)) return
+    }
+  }
+
+  await doLog()
 }
 
 function closePanel() {
@@ -1099,21 +1262,199 @@ function switchToEdit() {
   mode.value = 'log'
 }
 
+// ── Adjust Cycle ─────────────────────────────────────────────
+function exitAdjustMode() {
+  adjustingCycleId.value = null
+  adjustHandle.value = null
+  adjustDragActive.value = false
+  adjustPreviewDate.value = null
+}
+
+async function commitAdjust() {
+  if (!adjustingCycleId.value || !adjustPreviewDate.value || !adjustHandle.value) {
+    adjustDragActive.value = false
+    adjustHandle.value = null
+    adjustPreviewDate.value = null
+    return
+  }
+
+  // Block if the drag would overwrite another cycle
+  if (adjustHasOverlap.value) {
+    const cellEl = document.querySelector(`[data-date="${adjustPreviewDate.value}"]`)
+    const x = cellEl ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2 : window.innerWidth / 2
+    showHintBubble(x, adjustPreviewDate.value, 'Overlaps an existing cycle', 'dark')
+    adjustDragActive.value = false
+    adjustHandle.value = null
+    adjustPreviewDate.value = null
+    return
+  }
+
+  const cycleId = adjustingCycleId.value
+  const ac = adjustCycle.value
+  const newStart = adjustHandle.value === 'start' ? adjustPreviewDate.value : ac.start_date
+  const newEnd = adjustHandle.value === 'end' ? adjustPreviewDate.value : (ac.end_date || ac.last_logged_day)
+
+  const dayCount = (new Date(newEnd + 'T00:00:00') - new Date(newStart + 'T00:00:00')) / 86400000 + 1
+  if (dayCount > 10) {
+    const emptyDays = allCycleDays.value.filter(d => {
+      if (d.cycle_id !== cycleId) return false
+      const outside = d.date < newStart || (newEnd && d.date > newEnd)
+      if (!outside) return false
+      return !(d.flow_intensity || d.notes || (d.symptoms && d.symptoms.trim()))
+    })
+    const h = adjustHandle.value
+    const nd = [...adjustGhostDates.value]
+    adjustDragActive.value = false
+    adjustHandle.value = null
+    adjustPreviewDate.value = null
+    if (!guardLongCycle(dayCount, () => applyAdjust({ cycleId, newStart, newEnd, emptyDays, handle: h, newDates: nd }), cycleId)) {
+      await applyAdjust({ cycleId, newStart, newEnd, emptyDays, handle: h, newDates: nd })
+    }
+    return
+  }
+
+  const handle = adjustHandle.value
+  const emptyDays = allCycleDays.value.filter(d => {
+    if (d.cycle_id !== cycleId) return false
+    const outside = d.date < newStart || (newEnd && d.date > newEnd)
+    if (!outside) return false
+    return !(d.flow_intensity || d.notes || (d.symptoms && d.symptoms.trim()))
+  })
+  const newDates = [...adjustGhostDates.value]
+  adjustDragActive.value = false
+  adjustHandle.value = null
+  adjustPreviewDate.value = null
+  await applyAdjust({ cycleId, newStart, newEnd, emptyDays, handle, newDates })
+}
+
+async function applyAdjust({ cycleId, newStart, newEnd, emptyDays, handle, newDates = [] }) {
+  await fetch(`${API}/period/cycles/${cycleId}/adjust`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(handle === 'start' ? { start_date: newStart } : { end_date: newEnd })
+  })
+  if (emptyDays.length) {
+    await Promise.all(emptyDays.map(d => fetch(`${API}/period/cycle-days/${d.id}`, { method: 'DELETE' })))
+  }
+  await loadData()
+  if (newDates.length) flashDates(newDates)
+}
+
+async function confirmLongCycleAdjust() {
+  showLongCycleDialog.value = false
+  const fn = longCyclePendingFn.value
+  longCyclePendingFn.value = null
+  if (fn) await fn()
+}
+
+function cancelLongCycleAdjust() {
+  showLongCycleDialog.value = false
+  longCyclePendingFn.value = null
+}
+
+function guardLongCycle(dayCount, fn, cycleId = null) {
+  if (dayCount > 10 && (cycleId === null || !longCycleWarnedIds.has(cycleId))) {
+    longCycleDays.value = Math.round(dayCount)
+    longCyclePendingFn.value = async () => {
+      if (cycleId !== null) longCycleWarnedIds.add(cycleId)
+      await fn()
+    }
+    showLongCycleDialog.value = true
+    return true
+  }
+  return false
+}
+
+async function deleteOrphanedDay() {
+  const ds = selectedCell.value?.dateStr
+  if (!ds) return
+  const day = allCycleDays.value.find(d => d.date === ds)
+  if (!day) return
+  await fetch(`${API}/period/cycle-days/${day.id}`, { method: 'DELETE' })
+  closePanel()
+  await loadData()
+}
+
+function onAdjustKeydown(ev) {
+  if (ev.key === 'Escape' && adjustingCycleId.value) exitAdjustMode()
+}
+
 // ── Drag-to-select ───────────────────────────────────────────
 function onCellMouseDown(cell, ev) {
+  // If in adjust mode, clicking a handle starts a resize drag;
+  // clicking inside the same cycle does nothing; clicking elsewhere exits
+  if (adjustingCycleId.value) {
+    const ac = adjustCycle.value
+    if (ac) {
+      const acEnd = ac.end_date || ac.last_logged_day
+      if (cell.dateStr === ac.start_date) {
+        adjustHandle.value = 'start'
+        adjustPreviewDate.value = cell.dateStr
+        adjustDragActive.value = true
+        return
+      }
+      if (cell.dateStr === acEnd) {
+        adjustHandle.value = 'end'
+        adjustPreviewDate.value = cell.dateStr
+        adjustDragActive.value = true
+        return
+      }
+      // Clicking inside the active cycle body: stay in adjust mode, no action
+      if (dateToCycleId.value.get(cell.dateStr) === adjustingCycleId.value) return
+    }
+    exitAdjustMode()
+    return
+  }
+
   isDragging.value = true
   dragMoved.value = false
   dragStart.value = cell.dateStr
   dragEnd.value = cell.dateStr
+
+  // Hold on a period cell: 500ms without movement → enter adjust mode
+  if (periodDates.value.has(cell.dateStr)) {
+    const cycleId = dateToCycleId.value.get(cell.dateStr)
+    if (cycleId) {
+      adjustHoldTimer.value = setTimeout(() => {
+        adjustHoldTimer.value = null
+        isDragging.value = false
+        dragStart.value = null
+        dragEnd.value = null
+        dragMoved.value = false
+        adjustingCycleId.value = cycleId
+      }, 500)
+    }
+  }
 }
 
 function onCellMouseEnter(cell) {
+  if (adjustDragActive.value && cell.dateStr) {
+    adjustPreviewDate.value = cell.dateStr
+    return
+  }
   if (!isDragging.value || !cell.dateStr) return
+  // Movement before hold fires: cancel hold, proceed with drag-create
+  if (adjustHoldTimer.value && cell.dateStr !== dragStart.value) {
+    clearTimeout(adjustHoldTimer.value)
+    adjustHoldTimer.value = null
+  }
   dragEnd.value = cell.dateStr
   if (cell.dateStr !== dragStart.value) dragMoved.value = true
 }
 
 function onDocumentMouseUp(ev = {}) {
+  // Complete adjust-drag
+  if (adjustDragActive.value) {
+    commitAdjust()
+    return
+  }
+
+  // Cancel hold timer on any mouseup
+  if (adjustHoldTimer.value) {
+    clearTimeout(adjustHoldTimer.value)
+    adjustHoldTimer.value = null
+  }
+
   if (!isDragging.value) return
   isDragging.value = false
 
@@ -1207,32 +1548,50 @@ async function markOvulation() {
 }
 
 async function doSwipeCreate(x, s, e) {
-  dragRange.value = { start: s, end: e }
-  creating.value = true
-  try {
-    const label = dragRangeLabel.value
-    const startRes = await fetch(`${API}/period/cycles/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        start_date: s,
-        predicted_start_date: summary.value?.nextPeriodDate ?? null
+  const dayCount = (new Date(e + 'T00:00:00') - new Date(s + 'T00:00:00')) / 86400000 + 1
+  const fmt = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+  const label = s === e ? fmt(s) : `${fmt(s)} → ${fmt(e)}`
+
+  const doCreate = async () => {
+    dragRange.value = { start: s, end: e }
+    creating.value = true
+    try {
+      const startRes = await fetch(`${API}/period/cycles/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          start_date: s,
+          predicted_start_date: summary.value?.nextPeriodDate ?? null
+        })
       })
-    })
-    const { id } = await startRes.json()
-    await fetch(`${API}/period/cycles/${id}/end`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ end_date: e })
-    })
-    dragRange.value = null
+      const { id } = await startRes.json()
+      await fetch(`${API}/period/cycles/${id}/end`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ end_date: e })
+      })
+      dragRange.value = null
+      dragStart.value = null
+      dragEnd.value = null
+      await loadData()
+      const allDays = []
+      let cur = new Date(s + 'T00:00:00')
+      const endD = new Date(e + 'T00:00:00')
+      while (cur <= endD) { allDays.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1) }
+      flashDates(allDays)
+      showHintBubble(x, s, `Period logged: ${label}`, 'green')
+    } finally {
+      creating.value = false
+    }
+  }
+
+  if (guardLongCycle(dayCount, doCreate)) {
     dragStart.value = null
     dragEnd.value = null
-    await loadData()
-    showHintBubble(x, s, `Period logged: ${label}`, 'green')
-  } finally {
-    creating.value = false
+    return
   }
+
+  await doCreate()
 }
 
 const selectedLoggedDay = computed(() => {
@@ -1274,12 +1633,12 @@ const selectedDayType = computed(() => {
   if (!selectedCell.value?.dateStr) return ''
   const ds = selectedCell.value.dateStr
   switch (tapContext.value) {
-    case 'no-cycle':      return 'Starting period'
-    case 'consecutive':   return 'Period day'
-    case 'small-gap':     return 'Period day'
-    case 'large-gap':     return 'Start new period?'
-    case 'closed-cycle':  return 'Log details'
+    case 'no-cycle':       return 'Starting period'
+    case 'consecutive':    return 'Period day'
+    case 'large-gap':      return 'Start new period?'
+    case 'closed-cycle':   return 'Log details'
     case 'open-cycle-day': return 'Period day'
+    case 'orphaned':       return 'Logged data outside cycle'
   }
   // View-mode fallback (future dates, ovulation zone, existing data)
   if (periodDates.value.has(ds)) return 'Period day'
@@ -1318,73 +1677,105 @@ async function saveDay() {
 }
 
 async function onAdjacencyExtendPrevSilent(prevCycle, cell) {
-  try {
-    await fetch(`${API}/period/cycles/${prevCycle.id}/end`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ end_date: cell.dateStr })
-    })
-    await loadData()
-    const cellEl = document.querySelector(`[data-date="${cell.dateStr}"]`)
-    const x = cellEl ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2 : window.innerWidth / 2
-    showHintBubble(x, cell.dateStr, 'Period extended', 'green')
-  } catch (err) {
-    console.error('Failed to extend previous cycle:', err)
+  const dayCount = (new Date(cell.dateStr + 'T00:00:00') - new Date(prevCycle.start_date + 'T00:00:00')) / 86400000 + 1
+  const doExtend = async () => {
+    try {
+      await fetch(`${API}/period/cycles/${prevCycle.id}/end`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ end_date: cell.dateStr })
+      })
+      await loadData()
+      const cellEl = document.querySelector(`[data-date="${cell.dateStr}"]`)
+      const x = cellEl ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2 : window.innerWidth / 2
+      showHintBubble(x, cell.dateStr, 'Period extended', 'green')
+    } catch (err) {
+      console.error('Failed to extend previous cycle:', err)
+    }
   }
+  if (guardLongCycle(dayCount, doExtend, prevCycle.id)) return
+  await doExtend()
 }
 
 async function onAdjacencyExtendNextSilent(nextCycle, cell) {
-  try {
-    await fetch(`${API}/period/cycles/${nextCycle.id}/start`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ start_date: cell.dateStr })
-    })
-    await loadData()
-    const cellEl = document.querySelector(`[data-date="${cell.dateStr}"]`)
-    const x = cellEl ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2 : window.innerWidth / 2
-    showHintBubble(x, cell.dateStr, 'Period start moved', 'green')
-  } catch (err) {
-    console.error('Failed to move next cycle start:', err)
+  const cycleEnd = nextCycle.end_date || nextCycle.last_logged_day
+  const dayCount = cycleEnd
+    ? (new Date(cycleEnd + 'T00:00:00') - new Date(cell.dateStr + 'T00:00:00')) / 86400000 + 1
+    : 1
+  const doExtend = async () => {
+    try {
+      await fetch(`${API}/period/cycles/${nextCycle.id}/start`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_date: cell.dateStr })
+      })
+      await loadData()
+      const cellEl = document.querySelector(`[data-date="${cell.dateStr}"]`)
+      const x = cellEl ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2 : window.innerWidth / 2
+      showHintBubble(x, cell.dateStr, 'Period start moved', 'green')
+    } catch (err) {
+      console.error('Failed to move next cycle start:', err)
+    }
   }
+  if (guardLongCycle(dayCount, doExtend, nextCycle.id)) return
+  await doExtend()
 }
 
 async function onAdjacencyExtendPrev() {
   const { prevCycle, pendingCell } = adjacencyDialog.value
-  adjacencyDialog.value.working = true
-  try {
-    await fetch(`${API}/period/cycles/${prevCycle.id}/end`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ end_date: pendingCell.dateStr })
-    })
-    adjacencyDialog.value.show = false
-    await loadData()
-    const cellEl = document.querySelector(`[data-date="${pendingCell.dateStr}"]`)
-    const x = cellEl ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2 : window.innerWidth / 2
-    showHintBubble(x, pendingCell.dateStr, 'Period extended', 'green')
-  } finally {
-    adjacencyDialog.value.working = false
+  const dayCount = (new Date(pendingCell.dateStr + 'T00:00:00') - new Date(prevCycle.start_date + 'T00:00:00')) / 86400000 + 1
+  const doExtend = async () => {
+    adjacencyDialog.value.working = true
+    try {
+      await fetch(`${API}/period/cycles/${prevCycle.id}/end`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ end_date: pendingCell.dateStr })
+      })
+      adjacencyDialog.value.show = false
+      await loadData()
+      const cellEl = document.querySelector(`[data-date="${pendingCell.dateStr}"]`)
+      const x = cellEl ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2 : window.innerWidth / 2
+      showHintBubble(x, pendingCell.dateStr, 'Period extended', 'green')
+    } finally {
+      adjacencyDialog.value.working = false
+    }
   }
+  if (guardLongCycle(dayCount, doExtend, prevCycle.id)) {
+    adjacencyDialog.value.show = false
+    return
+  }
+  await doExtend()
 }
 
 async function onAdjacencyExtendNext() {
   const { nextCycle, pendingCell } = adjacencyDialog.value
-  adjacencyDialog.value.working = true
-  try {
-    await fetch(`${API}/period/cycles/${nextCycle.id}/start`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ start_date: pendingCell.dateStr })
-    })
-    adjacencyDialog.value.show = false
-    await loadData()
-    const cellEl = document.querySelector(`[data-date="${pendingCell.dateStr}"]`)
-    const x = cellEl ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2 : window.innerWidth / 2
-    showHintBubble(x, pendingCell.dateStr, 'Period start moved', 'green')
-  } finally {
-    adjacencyDialog.value.working = false
+  const cycleEnd = nextCycle.end_date || nextCycle.last_logged_day
+  const dayCount = cycleEnd
+    ? (new Date(cycleEnd + 'T00:00:00') - new Date(pendingCell.dateStr + 'T00:00:00')) / 86400000 + 1
+    : 1
+  const doExtend = async () => {
+    adjacencyDialog.value.working = true
+    try {
+      await fetch(`${API}/period/cycles/${nextCycle.id}/start`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_date: pendingCell.dateStr })
+      })
+      adjacencyDialog.value.show = false
+      await loadData()
+      const cellEl = document.querySelector(`[data-date="${pendingCell.dateStr}"]`)
+      const x = cellEl ? cellEl.getBoundingClientRect().left + cellEl.getBoundingClientRect().width / 2 : window.innerWidth / 2
+      showHintBubble(x, pendingCell.dateStr, 'Period start moved', 'green')
+    } finally {
+      adjacencyDialog.value.working = false
+    }
   }
+  if (guardLongCycle(dayCount, doExtend, nextCycle.id)) {
+    adjacencyDialog.value.show = false
+    return
+  }
+  await doExtend()
 }
 
 function onAdjacencyNewPeriod() {
@@ -1426,24 +1817,7 @@ async function endActivePeriod() {
   }
 }
 
-async function fillGapDays(cycleId, fromDate, toDate) {
-  const cur = new Date(fromDate + 'T00:00:00')
-  cur.setDate(cur.getDate() + 1)
-  const end = new Date(toDate + 'T00:00:00')
-  while (cur <= end) {
-    const dateStr = cur.toISOString().split('T')[0]
-    if (!loggedDayMap.value[dateStr]) {
-      await fetch(`${API}/period/cycle-days`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cycle_id: cycleId, date: dateStr, flow_intensity: null, notes: null, symptoms: [] })
-      })
-    }
-    cur.setDate(cur.getDate() + 1)
-  }
-}
-
-// Core: resolves cycleId, fills gaps if needed, saves the cycle-day record.
+// Core: resolves cycleId and saves the cycle-day record.
 // Returns the cycleId on success, null on failure.
 async function _saveCycleDayCore(ds) {
   const existing = loggedDayMap.value[ds]
@@ -1475,15 +1849,9 @@ async function _saveCycleDayCore(ds) {
       })
       const data = await res.json()
       cycleId = data.id
-    } else if (ctx === 'consecutive' || ctx === 'small-gap') {
+    } else if (ctx === 'consecutive') {
       const active = findRelevantOpenCycle(ds)
       if (!active) return null
-      if (ctx === 'small-gap') {
-        const fromDate = active.last_logged_day || active.start_date
-        const fillEnd = new Date(ds + 'T00:00:00')
-        fillEnd.setDate(fillEnd.getDate() - 1)
-        await fillGapDays(active.id, fromDate, fillEnd.toISOString().split('T')[0])
-      }
       cycleId = active.id
     } else if (ctx === 'closed-cycle' || ctx === 'open-cycle-day') {
       const match = allCycles.value.find(c => {
@@ -1564,11 +1932,14 @@ async function loadData() {
 onMounted(() => {
   loadData()
   document.addEventListener('mouseup', onDocumentMouseUp)
+  document.addEventListener('keydown', onAdjustKeydown)
 })
 
 onUnmounted(() => {
   document.removeEventListener('mouseup', onDocumentMouseUp)
+  document.removeEventListener('keydown', onAdjustKeydown)
   if (hintBubbleTimer) clearTimeout(hintBubbleTimer)
+  if (adjustHoldTimer.value) clearTimeout(adjustHoldTimer.value)
 })
 </script>
 
@@ -1664,6 +2035,10 @@ onUnmounted(() => {
 .warning-item:hover {
   background: #fef3c7;
 }
+.warning-item-orphan {
+  border-left-color: #fb923c;
+  color: #9a3412;
+}
 
 /* Calendar cell badges (bottom-right icons) */
 .cal-cell-badges {
@@ -1706,6 +2081,7 @@ onUnmounted(() => {
 }
 .cal-cell-badge-warn { background: rgba(254, 243, 199, 0.9); }
 .cal-cell-badge-note { background: rgba(226, 232, 240, 0.9); }
+
 
 /* Status card */
 .status-card {
@@ -1771,6 +2147,8 @@ onUnmounted(() => {
   cursor: default;
   position: relative;
   gap: 2px;
+  transition: background 0.15s ease;
+  user-select: none;
 }
 .cal-cell-day { cursor: pointer; }
 .cal-cell-day:hover { background: #F4C0D1; }
@@ -1784,7 +2162,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #D4537E;
+  background: hsl(var(--flow-hue), 65%, 58%);
   border-radius: 10px;
   color: #fff;
   font-size: 16px;
@@ -1918,13 +2296,21 @@ onUnmounted(() => {
 
 /* Period day — continuous band */
 .cal-period {
-  background: #D4537E;
+  background: hsl(var(--flow-hue), 60%, 65%);
   border-radius: 0;
-  border-top: 1.5px solid #993556;
-  border-bottom: 1.5px solid #993556;
+  border-top: 1.5px solid hsl(var(--flow-hue), 55%, 35%);
+  border-bottom: 1.5px solid hsl(var(--flow-hue), 55%, 35%);
 }
 .cal-period .cal-day-num { color: #fff; font-weight: 600; }
-.cal-period:hover { background: #bf3d6a; }
+.cal-period:hover { background: hsl(var(--flow-hue), 60%, 56%); }
+
+/* Flow intensity tints — driven by --flow-hue set from Settings */
+.cal-flow-spotting { background: hsl(var(--flow-hue), 50%, 80%) !important; }
+.cal-flow-spotting .cal-day-num { color: #fff !important; }
+.cal-flow-light    { background: hsl(var(--flow-hue), 55%, 74%) !important; }
+.cal-flow-medium   { background: hsl(var(--flow-hue), 65%, 58%) !important; }
+.cal-flow-heavy    { background: hsl(var(--flow-hue), 80%, 42%) !important; }
+
 .cal-period-row-start {
   border-top-left-radius: 10px;
   border-bottom-left-radius: 10px;
@@ -1963,16 +2349,6 @@ onUnmounted(() => {
 }
 .cal-today .cal-day-num { font-weight: 700; }
 
-/* Dots */
-.cal-dot {
-  width: 4px; height: 4px;
-  border-radius: 50%;
-  display: block;
-}
-.dot-period { background: #fff; }
-.dot-predicted { background: #D4537E; }
-.dot-fertile { background: #0F6E56; }
-.dot-ovulation { background: #854F0B; }
 
 /* Legend */
 .legend {
@@ -2245,47 +2621,6 @@ onUnmounted(() => {
 }
 .btn-save:disabled { opacity: 0.6; cursor: default; }
 
-/* True period start — darker accent, always left-capped regardless of row position */
-.cal-period-start {
-  background: #b83464;
-  border-top-left-radius: 10px;
-  border-bottom-left-radius: 10px;
-  border-left: 1.5px solid #993556;
-}
-.cal-period-start:hover { background: #a02d58; }
-
-/* True period end — darker accent, always right-capped regardless of row position */
-.cal-period-end {
-  background: #b83464;
-  border-top-right-radius: 10px;
-  border-bottom-right-radius: 10px;
-  border-right: 1.5px solid #993556;
-}
-.cal-period-end:hover { background: #a02d58; }
-
-/* Active/open period last day — dashed right edge with pulsing dot */
-.cal-period-open {
-  border-right: 2px dashed rgba(255, 255, 255, 0.55) !important;
-}
-.cal-period-open::after {
-  content: '';
-  position: absolute;
-  right: -3px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  background: white;
-  border-radius: 50%;
-  animation: period-open-pulse 1.6s ease-in-out infinite;
-  z-index: 3;
-  pointer-events: none;
-}
-
-@keyframes period-open-pulse {
-  0%, 100% { opacity: 0.4; transform: translateY(-50%) scale(0.8); }
-  50% { opacity: 1; transform: translateY(-50%) scale(1.25); }
-}
 
 /* Day-by-day action buttons */
 .end-period-btn {
@@ -2306,11 +2641,79 @@ onUnmounted(() => {
   display: flex;
   justify-content: center;
 }
-.gap-fill-notice {
+/* ── Adjust Cycle mode ───────────────────────────────────────── */
+@keyframes handle-pulse {
+  0%, 100% { outline-color: #993556; outline-offset: 1px; }
+  50%       { outline-color: #D4537E; outline-offset: 3px; }
+}
+
+.cal-adjust-handle-start,
+.cal-adjust-handle-end {
+  cursor: ew-resize;
+  outline: 2.5px solid #993556;
+  outline-offset: 1px;
+  z-index: 1;
+  animation: handle-pulse 1s ease-in-out infinite;
+}
+/* Arrow indicators on resize handles */
+.cal-adjust-handle-start::before {
+  content: '←';
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 8px;
+  color: #993556;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+.cal-adjust-handle-end::after {
+  content: '→';
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 8px;
+  color: #993556;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+.cal-adjust-active { opacity: 0.8; }
+.cal-adjust-dimmed { opacity: 0.35; }
+
+/* Ghost preview cells during drag */
+.cal-adjust-ghost {
+  background: hsla(var(--flow-hue), 60%, 65%, 0.55) !important;
+  border: 1.5px dashed #D4537E !important;
+  border-radius: 10px !important;
+}
+.cal-adjust-adding {
+  background: hsla(var(--flow-hue), 60%, 65%, 0.35) !important;
+  border: 1.5px dashed #D4537E !important;
+  border-radius: 10px !important;
+}
+.cal-adjust-removing {
+  opacity: 0.18 !important;
+}
+.cal-adjust-overlap {
+  background: hsla(0, 75%, 62%, 0.35) !important;
+  border: 1.5px dashed #ef4444 !important;
+  border-radius: 4px !important;
+}
+
+/* Orphaned day badge */
+.cal-cell-badge-orphan { background: rgba(255, 237, 213, 0.9); }
+
+/* Orphaned day panel */
+.orphaned-notice {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 16px 0; text-align: center;
+}
+.orphaned-notice p { font-size: 14px; color: #666; margin: 0; }
+.delete-orphan-btn {
   display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: #D4537E;
-  background: #FBEAF0; border: 1px solid #F4C0D1;
-  border-radius: 8px; padding: 8px 12px;
-  margin-bottom: 12px;
+  font-size: 13px; color: #c0392b;
+  background: #fef2f2; border: 1px solid #fca5a5;
+  border-radius: 8px; padding: 8px 16px; cursor: pointer;
 }
 </style>

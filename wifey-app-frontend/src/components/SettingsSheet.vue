@@ -22,6 +22,22 @@
             </div>
           </div>
 
+          <p class="sheet-section-label">Flow Color</p>
+          <div class="flow-color-section">
+            <div class="flow-swatches-row">
+              <div v-for="s in flowSwatches" :key="s.label" class="flow-swatch-item">
+                <div class="flow-swatch-dot" :style="{ background: s.bg }">
+                  <span class="flow-swatch-letter" :style="{ color: s.textColor }">{{ s.label[0] }}</span>
+                </div>
+                <span class="flow-swatch-label">{{ s.label }}</span>
+              </div>
+            </div>
+            <div class="hue-slider-wrap">
+              <div class="hue-track-gradient" />
+              <input type="range" class="hue-slider" min="290" max="380" v-model.number="flowHue" />
+            </div>
+          </div>
+
           <p class="sheet-section-label">Preferences</p>
           <div class="prefs-list">
             <div class="pref-row">
@@ -48,7 +64,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 
 defineProps({ modelValue: Boolean })
 defineEmits(['update:modelValue'])
@@ -61,6 +77,22 @@ const themes = [
   { name: 'Sage',     light: '#E1F5EE', accent: '#1D9E75' },
   { name: 'Honey',    light: '#FAEEDA', accent: '#BA7517' }
 ]
+
+const FLOW_HUE_KEY = 'flow-hue'
+const flowHue = ref(parseInt(localStorage.getItem(FLOW_HUE_KEY) ?? '340', 10))
+
+const flowSwatches = computed(() => [
+  { label: 'Spotting', bg: `hsl(${flowHue.value}, 50%, 80%)`,  textColor: '#fff' },
+  { label: 'Light',    bg: `hsl(${flowHue.value}, 55%, 74%)`,  textColor: '#fff' },
+  { label: 'Medium',   bg: `hsl(${flowHue.value}, 65%, 58%)`,  textColor: '#fff' },
+  { label: 'Heavy',    bg: `hsl(${flowHue.value}, 80%, 42%)`,  textColor: '#fff' },
+])
+
+onMounted(() => document.documentElement.style.setProperty('--flow-hue', flowHue.value))
+watch(flowHue, v => {
+  document.documentElement.style.setProperty('--flow-hue', v)
+  localStorage.setItem(FLOW_HUE_KEY, v)
+})
 </script>
 
 <style scoped>
@@ -83,6 +115,46 @@ const themes = [
 .pref-action { font-size: 13px; color: #bbb; }
 .toggle { width: 36px; height: 20px; background: #D4537E; border-radius: 10px; position: relative; cursor: pointer; }
 .toggle-knob { width: 16px; height: 16px; background: white; border-radius: 50%; position: absolute; top: 2px; right: 2px; }
+
+/* Flow color section */
+.flow-color-section { margin-bottom: 1.25rem; }
+.flow-swatches-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.flow-swatch-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.flow-swatch-dot {
+  width: 100%; aspect-ratio: 1; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.1s;
+}
+.flow-swatch-letter { font-size: 12px; font-weight: 700; line-height: 1; }
+.flow-swatch-label { font-size: 9px; color: #aaa; text-transform: capitalize; letter-spacing: 0.03em; }
+
+.hue-slider-wrap { position: relative; height: 28px; display: flex; align-items: center; }
+.hue-track-gradient {
+  position: absolute; left: 0; right: 0; height: 6px; border-radius: 3px; pointer-events: none;
+  background: linear-gradient(to right,
+    hsl(290, 65%, 58%), hsl(310, 65%, 58%), hsl(330, 65%, 58%),
+    hsl(350, 65%, 58%), hsl(370, 65%, 50%), hsl(380, 70%, 44%)
+  );
+}
+.hue-slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 100%; background: transparent; cursor: pointer; position: relative; z-index: 1; margin: 0;
+}
+.hue-slider::-webkit-slider-runnable-track { height: 6px; background: transparent; border-radius: 3px; }
+.hue-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; border: 2px solid #ddd;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.18);
+  margin-top: -8px; cursor: pointer;
+}
+.hue-slider::-moz-range-track { height: 6px; background: transparent; border-radius: 3px; }
+.hue-slider::-moz-range-thumb {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; border: 2px solid #ddd;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.18);
+  cursor: pointer;
+}
 
 .sheet-note { font-size: 11px; color: #ccc; margin: 0 0 1rem; }
 .close-btn { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #e0e0e0; background: #f5f5f5; font-size: 14px; color: #555; cursor: pointer; }

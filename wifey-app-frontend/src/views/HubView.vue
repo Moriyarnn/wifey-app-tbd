@@ -7,9 +7,7 @@
         <div class="hub-header">
           <div>
             <p class="hub-date">{{ todayLabel }}</p>
-            <!-- TODO: App name TBD — to be confirmed before launch -->
             <h1 class="hub-title">Wifey App</h1>
-            <!-- TODO: Greeting TBD — make configurable in settings -->
             <p class="hub-subtitle">Good morning, my love</p>
           </div>
           <button class="settings-icon-btn" @click="settingsOpen = true">
@@ -104,7 +102,7 @@ const stripCards = ref([
     labelColor: '#993556', messageColor: '#72243E'
   },
   {
-    label: 'Anniversary',
+    label: 'Event',
     message: 'Wedding anniversary in 8 days — April 8',
     bg: '#FAEEDA', border: '#FAC775',
     labelColor: '#854F0B', messageColor: '#633806'
@@ -124,19 +122,29 @@ const apps = [
     titleColor: '#72243E', subColor: '#993556', badgeText: '#72243E'
   },
   {
+    name: 'Sleep tracker', icon: 'mdi-sleep', active: false, route: '',
+    bg: '#EDF0FB', border: '#B8C2F0', iconColor: '#3D52A0',
+    titleColor: '#2B3A7A', subColor: '#3D52A0', badgeText: '#2B3A7A'
+  },
+  {
+    name: 'Exercise', icon: 'mdi-run', active: false, route: '',
+    bg: '#FEF0E6', border: '#F5C19A', iconColor: '#C45B1A',
+    titleColor: '#9A3D0E', subColor: '#C45B1A', badgeText: '#9A3D0E'
+  },
+  {
     name: 'Shopping list', icon: 'mdi-format-list-checks', active: false, route: '',
     bg: '#E1F5EE', border: '#9FE1CB', iconColor: '#0F6E56',
     titleColor: '#085041', subColor: '#0F6E56', badgeText: '#085041'
   },
   {
-    name: 'Events', icon: 'mdi-star-four-points', active: false, route: '',
-    bg: '#FAEEDA', border: '#FAC775', iconColor: '#854F0B',
-    titleColor: '#633806', subColor: '#854F0B', badgeText: '#633806'
-  },
-  {
     name: 'Recipes', icon: 'mdi-silverware-fork-knife', active: false, route: '',
     bg: '#EAF3DE', border: '#C0DD97', iconColor: '#3B6D11',
     titleColor: '#27500A', subColor: '#3B6D11', badgeText: '#27500A'
+  },
+  {
+    name: 'Events', icon: 'mdi-star-four-points', active: false, route: '',
+    bg: '#FAEEDA', border: '#FAC775', iconColor: '#854F0B',
+    titleColor: '#633806', subColor: '#854F0B', badgeText: '#633806'
   },
   {
     name: 'Notion sync', icon: 'mdi-note-multiple-outline', active: false, route: '',
