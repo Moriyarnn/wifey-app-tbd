@@ -1,12 +1,12 @@
-# Groceries — Frontend
+# Pantry — Frontend
 
 ## Overview
 
-Two-layer household food system: a **shopping list** (what needs to be bought) and a **pantry** (what's in the house, with expiry tracking). Checking off a shopping item moves it into the pantry. The pantry drives expiry notifications and eventual recipe integration.
+Two-layer household food system: a **Shopping List** tab (what needs to be bought) and a **Pantry** tab (what's in the house, with expiry tracking). Checking off a shopping item moves it into the pantry. The pantry drives expiry notifications and eventual recipe integration.
 
 ## Planned Views
 
-- `src/views/GroceriesView.vue` — main screen, tabbed: Shopping List / Pantry
+- `src/views/PantryHome.vue` — main screen, tabbed: Shopping List / Pantry
 - `src/views/PantryItemDetail.vue` — detail/edit for a single pantry item (expiry, quantity, notes)
 
 ## Shopping List Tab
@@ -52,6 +52,8 @@ Inventory of what's currently in the house. Items here have been bought and may 
 | Expires today | 0 days | red pulse |
 | Expired | past expiry | grey strikethrough |
 
+Items with no expiry date set are shown normally with no color state applied.
+
 **Interactions:**
 - Tap item → PantryItemDetail (edit expiry, quantity, notes; mark as used/wasted)
 - Swipe left → mark as used (removes from pantry)
@@ -60,6 +62,15 @@ Inventory of what's currently in the house. Items here have been bought and may 
 
 **Sorting options:** by expiry date (default), by category, by name, by bought date.
 
+**Empty state:** First-time empty pantry shows a friendly prompt: "Nothing here yet — check items off your shopping list to stock it up, or tap + to add directly."
+
+## Pantry Stats Bar (free)
+
+A compact summary row pinned below the tab bar on the Pantry tab:
+> "12 items · 2 expiring soon"
+
+Updates live. Tapping the "expiring soon" segment scrolls to / highlights those items.
+
 ## Expiry Nudge (free)
 
 A persistent banner at the top of the Pantry tab when items are expiring within 3 days:
@@ -67,7 +78,7 @@ A persistent banner at the top of the Pantry tab when items are expiring within 
 
 Tapping scrolls to / highlights the expiring items.
 
-## Grocery Shopping Wizard (free)
+## Shopping Wizard (free)
 
 A "just got home" bulk-add mode accessible from a FAB or prominent button on the Pantry tab. Designed for speed — the whole flow stays on one screen.
 
@@ -84,7 +95,6 @@ The wizard does not require items to exist on the shopping list first — it's a
 - Saved templates: save the current wizard session as a named template (e.g. "weekly staples") for one-tap reuse
 - Repeat last shop: pre-fills the wizard with the previous session
 - Barcode scanner (mobile): scan item barcode to auto-fill name and category
-- Receipt OCR: photograph receipt to auto-parse item names (future — requires AI/OCR)
 
 ## Recipe Crossover (premium — Phase 7+)
 
@@ -95,10 +105,24 @@ When recipes are implemented, the pantry unlocks a "What can I cook?" flow:
 
 ## Hub Card
 
-The hub card shows a live badge:
+The hub card shows a live summary:
 - X items on the shopping list
+- X items in the pantry
 - If any pantry items expiring in ≤3 days: amber warning dot
+
+## Role Access
+
+| Action | Owner | Partner |
+|--------|-------|---------|
+| View shopping list | ✓ | ✓ |
+| Add / edit / remove list items | ✓ | ✓ |
+| Check off and move to pantry | ✓ | ✓ |
+| View pantry | ✓ | ✓ |
+| Add / edit pantry items | ✓ | ✓ |
+| Mark used / wasted | ✓ | ✓ |
+
+Both roles have full access — Pantry is a shared household feature.
 
 ## Status
 
-Planned — not yet implemented. Backend spec: [Groceries — Backend](../../backend/groceries.md)
+Planned — not yet implemented. Backend spec: [Pantry — Backend](../../backend/pantry.md)

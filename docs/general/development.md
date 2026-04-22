@@ -26,9 +26,6 @@ Installed at `C:\Program Files\GitHub CLI\gh.exe` — PATH must be set manually 
 
 Bug tracking: GitHub Issues on `Moriyarnn/wifey-app`
 
-## Issue Hygiene
-When a feature or bug fix that corresponds to an open GitHub issue is completed, always suggest closing the issue — the same way you suggest resuming the main task after a detour. Don't close it silently; ask first.
-
 ## Docker Notes
 - `.dockerignore` in `wifey-app-backend/` excludes `node_modules`, `.env`, and `data` from the build context — critical for native modules (`better-sqlite3`) so Windows-compiled binaries don't overwrite Linux ones in the image.
 - Anonymous volumes (`- /app/node_modules`) mask host bind-mount. If a native module breaks after a rebuild, remove the stale volume: `docker volume rm <id>`.

@@ -69,5 +69,5 @@ wifey-app-backend/
 - Core feature: complete
 - Flow intensity (`spotting` level): complete (#24)
 - Adjust cycle: complete (#26)
-- Auto end_date (#36): pending
-- Period end UI wiring: pending
+- Auto end_date (#36): complete
+- Period end UI wiring: complete (#36) — "End Period" button removed; cycles auto-close

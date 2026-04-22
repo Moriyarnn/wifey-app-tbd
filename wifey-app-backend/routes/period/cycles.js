@@ -1,6 +1,7 @@
 const express = require('express')
 const router = express.Router()
 const { logPeriodEvent } = require('../../logger')
+const { requireOwner } = require('../../middleware/auth')
 
 module.exports = (db) => {
   // Get all cycles with last logged day
@@ -23,7 +24,7 @@ module.exports = (db) => {
   })
 
   // Start a new period
-  router.post('/start', (req, res) => {
+  router.post('/start', requireOwner, (req, res) => {
     const { start_date, predicted_start_date } = req.body
     if (!start_date) return res.status(400).json({ error: 'start_date is required' })
     const result = db.prepare(
@@ -35,7 +36,7 @@ module.exports = (db) => {
   })
 
   // Move a period start to an earlier date
-  router.patch('/:id/start', (req, res) => {
+  router.patch('/:id/start', requireOwner, (req, res) => {
     const { start_date } = req.body
     if (!start_date) return res.status(400).json({ error: 'start_date is required' })
     const id = Number(req.params.id)
@@ -48,7 +49,7 @@ module.exports = (db) => {
   })
 
   // End a period (also cascade-deletes orphaned cycle_days after end_date)
-  router.patch('/:id/end', (req, res) => {
+  router.patch('/:id/end', requireOwner, (req, res) => {
     const { end_date } = req.body
     if (!end_date) return res.status(400).json({ error: 'end_date is required' })
     const id = Number(req.params.id)
@@ -65,14 +66,15 @@ module.exports = (db) => {
   })
 
   // Adjust cycle start/end without deleting orphaned cycle_days (used by Adjust Cycle feature)
-  router.patch('/:id/adjust', (req, res) => {
+  // PREMIUM GATE (backend) — Phase 5: move this route to /api/premium/period/cycles/:id/adjust under the requireLicense router.
+  router.patch('/:id/adjust', requireOwner, (req, res) => {
     const { start_date, end_date } = req.body
     const id = Number(req.params.id)
     const cycle = db.prepare('SELECT * FROM cycles WHERE id = ?').get(id)
     if (!cycle) return res.status(404).json({ error: 'Cycle not found' })
     const newStart = start_date ?? cycle.start_date
     const newEnd = end_date ?? cycle.end_date
-    if (newEnd && newStart >= newEnd)
+    if (newEnd && newStart > newEnd)
       return res.status(400).json({ error: 'start_date must be before end_date' })
     db.prepare('UPDATE cycles SET start_date = ?, end_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(newStart, newEnd, id)
@@ -81,14 +83,14 @@ module.exports = (db) => {
   })
 
   // Set or clear ovulation date for a cycle
-  router.patch('/:id/ovulation', (req, res) => {
+  router.patch('/:id/ovulation', requireOwner, (req, res) => {
     const { ovulation_date } = req.body
     db.prepare('UPDATE cycles SET ovulation_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(ovulation_date ?? null, req.params.id)
     res.json({ success: true })
   })
 
   // Delete a cycle (also removes all cycle_days and their symptoms)
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', requireOwner, (req, res) => {
     const id = Number(req.params.id)
     const cycle = db.prepare('SELECT start_date FROM cycles WHERE id = ?').get(id)
     const days = db.prepare('SELECT id FROM cycle_days WHERE cycle_id = ?').all(id)

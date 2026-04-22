@@ -6,22 +6,6 @@
           <div class="handle" />
           <h2 class="sheet-title">Settings</h2>
 
-          <p class="sheet-section-label">Theme</p>
-          <div class="theme-grid">
-            <div
-              v-for="theme in themes"
-              :key="theme.name"
-              class="theme-swatch"
-              :class="{ selected: activeTheme === theme.name }"
-              @click="activeTheme = theme.name"
-            >
-              <div class="swatch-circle" :style="{ background: theme.light, borderColor: activeTheme === theme.name ? theme.accent : '#e0e0e0' }">
-                <div class="swatch-dot" :style="{ background: theme.accent }" />
-              </div>
-              <p class="swatch-label" :style="{ color: activeTheme === theme.name ? theme.accent : '#bbb' }">{{ theme.name }}</p>
-            </div>
-          </div>
-
           <p class="sheet-section-label">Flow Color</p>
           <div class="flow-color-section">
             <div class="flow-swatches-row">
@@ -38,23 +22,53 @@
             </div>
           </div>
 
-          <p class="sheet-section-label">Preferences</p>
+          <p class="sheet-section-label">Notifications</p>
           <div class="prefs-list">
-            <div class="pref-row">
-              <span class="pref-label">Push notifications</span>
-              <div class="toggle on"><div class="toggle-knob" /></div>
+            <div class="pref-row" @click="toggleNotifications" style="cursor:pointer">
+              <span class="pref-label">Email notifications</span>
+              <div class="toggle" :class="{ on: settings.notifications_enabled !== '0' }">
+                <div class="toggle-knob" />
+              </div>
             </div>
             <div class="pref-row">
-              <span class="pref-label">Partner name</span>
-              <span class="pref-action">Edit</span>
-            </div>
-            <div class="pref-row">
-              <span class="pref-label">Cycle reminder (days before)</span>
-              <span class="pref-action">3 days</span>
+              <span class="pref-label">Remind me (days before period)</span>
+              <div class="segmented">
+                <button
+                  v-for="d in [1, 2, 3]"
+                  :key="d"
+                  class="seg-btn"
+                  :class="{ active: reminderDays === d }"
+                  @click="setReminderDays(d)"
+                >{{ d }}</button>
+              </div>
             </div>
           </div>
 
-          <p class="sheet-note">Theme customization and more preferences coming soon.</p>
+          <p class="sheet-section-label">Notification Messages</p>
+          <div class="prefs-list">
+            <div class="pref-row pref-row--input">
+              <span class="pref-label">Greeting</span>
+              <input class="pref-input" :value="settings.notification_greeting" @change="e => updateSetting('notification_greeting', (e.target as HTMLInputElement).value)" placeholder="love" />
+            </div>
+            <div class="pref-row pref-row--input">
+              <span class="pref-label">Sign-off</span>
+              <input class="pref-input" :value="settings.notification_signoff" @change="e => updateSetting('notification_signoff', (e.target as HTMLInputElement).value)" placeholder="Sent with love by your household app 💕" />
+            </div>
+            <div class="pref-row pref-row--input">
+              <span class="pref-label">Sender name</span>
+              <input class="pref-input" :value="settings.notification_sender_name" @change="e => updateSetting('notification_sender_name', (e.target as HTMLInputElement).value)" placeholder="Wifey App 💌" />
+            </div>
+          </div>
+
+          <p class="sheet-section-label">Period Tracker</p>
+          <div class="prefs-list">
+            <div v-if="isOwner" class="pref-row" @click="togglePartnerNotes" style="cursor:pointer">
+              <span class="pref-label">Partner can read notes</span>
+              <div class="toggle" :class="{ on: settings.partner_can_read_notes === '1' }">
+                <div class="toggle-knob" />
+              </div>
+            </div>
+          </div>
 
           <button class="close-btn" @click="$emit('update:modelValue', false)">Close</button>
         </div>
@@ -63,23 +77,53 @@
   </teleport>
 </template>
 
-<script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+<script setup lang="ts">
+import { computed, onMounted, watch } from 'vue'
+import { getUser } from '../api'
+import { useSettings } from '../composables/useSettings'
+import { usePreferences } from '../composables/usePreferences'
 
-defineProps({ modelValue: Boolean })
+const props = defineProps({ modelValue: Boolean })
 defineEmits(['update:modelValue'])
 
-const activeTheme = ref('Rose')
+watch(() => props.modelValue, (open) => {
+  document.body.style.overflow = open ? 'hidden' : ''
+  document.body.style.position = open ? 'fixed' : ''
+  document.body.style.width = open ? '100%' : ''
+})
 
-const themes = [
-  { name: 'Rose',     light: '#FBEAF0', accent: '#D4537E' },
-  { name: 'Lavender', light: '#EEEDFE', accent: '#7F77DD' },
-  { name: 'Sage',     light: '#E1F5EE', accent: '#1D9E75' },
-  { name: 'Honey',    light: '#FAEEDA', accent: '#BA7517' }
-]
+const isOwner = getUser()?.role === 'owner'
+const { settings, fetchSettings, updateSetting } = useSettings()
+const { preferences, fetchPreferences, updatePreference } = usePreferences()
 
-const FLOW_HUE_KEY = 'flow-hue'
-const flowHue = ref(parseInt(localStorage.getItem(FLOW_HUE_KEY) ?? '340', 10))
+onMounted(async () => {
+  await fetchSettings()
+  await fetchPreferences()
+})
+
+function togglePartnerNotes() {
+  const next = settings.value.partner_can_read_notes === '1' ? '0' : '1'
+  updateSetting('partner_can_read_notes', next)
+}
+
+function toggleNotifications() {
+  const next = settings.value.notifications_enabled !== '0' ? '0' : '1'
+  updateSetting('notifications_enabled', next)
+}
+
+const reminderDays = computed(() => parseInt(settings.value.reminder_days ?? '3', 10))
+
+function setReminderDays(d: number) {
+  updateSetting('reminder_days', String(d))
+}
+
+const flowHue = computed({
+  get: () => parseInt(preferences.value.flow_hue ?? '340', 10),
+  set: (v) => {
+    document.documentElement.style.setProperty('--flow-hue', String(v))
+    updatePreference('flow_hue', String(v))
+  }
+})
 
 const flowSwatches = computed(() => [
   { label: 'Spotting', bg: `hsl(${flowHue.value}, 50%, 80%)`,  textColor: '#fff' },
@@ -87,34 +131,24 @@ const flowSwatches = computed(() => [
   { label: 'Medium',   bg: `hsl(${flowHue.value}, 65%, 58%)`,  textColor: '#fff' },
   { label: 'Heavy',    bg: `hsl(${flowHue.value}, 80%, 42%)`,  textColor: '#fff' },
 ])
-
-onMounted(() => document.documentElement.style.setProperty('--flow-hue', flowHue.value))
-watch(flowHue, v => {
-  document.documentElement.style.setProperty('--flow-hue', v)
-  localStorage.setItem(FLOW_HUE_KEY, v)
-})
 </script>
 
 <style scoped>
-.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 200; display: flex; align-items: flex-end; justify-content: center; }
-.sheet { background: white; border-radius: 20px 20px 0 0; width: 100%; max-width: 480px; padding: 1.25rem 1.25rem 2.5rem; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 200; display: flex; align-items: flex-end; justify-content: center; touch-action: none; }
+.sheet { background: white; border-radius: 20px 20px 0 0; width: 100%; max-width: 480px; padding: 1.25rem 1.25rem 2.5rem; max-height: 85vh; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
 .handle { width: 36px; height: 4px; background: #e0e0e0; border-radius: 2px; margin: 0 auto 1.25rem; }
 .sheet-title { font-size: 18px; font-weight: 500; margin: 0 0 1.25rem; }
 .sheet-section-label { font-size: 10px; font-weight: 600; color: #bbb; letter-spacing: 0.07em; text-transform: uppercase; margin: 0 0 10px; }
-
-.theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 1.25rem; }
-.theme-swatch { text-align: center; cursor: pointer; }
-.swatch-circle { width: 44px; height: 44px; border-radius: 50%; border: 2px solid; margin: 0 auto 4px; display: flex; align-items: center; justify-content: center; transition: border-color 0.2s; }
-.swatch-dot { width: 20px; height: 20px; border-radius: 50%; }
-.swatch-label { font-size: 10px; margin: 0; transition: color 0.2s; }
 
 .prefs-list { border: 1px solid #f0f0f0; border-radius: 12px; overflow: hidden; margin-bottom: 1rem; }
 .pref-row { padding: 13px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f0f0f0; }
 .pref-row:last-child { border-bottom: none; }
 .pref-label { font-size: 13px; color: #333; }
 .pref-action { font-size: 13px; color: #bbb; }
-.toggle { width: 36px; height: 20px; background: #D4537E; border-radius: 10px; position: relative; cursor: pointer; }
-.toggle-knob { width: 16px; height: 16px; background: white; border-radius: 50%; position: absolute; top: 2px; right: 2px; }
+.toggle { width: 36px; height: 20px; background: #ddd; border-radius: 10px; position: relative; cursor: pointer; transition: background 0.2s; }
+.toggle.on { background: #D4537E; }
+.toggle-knob { width: 16px; height: 16px; background: white; border-radius: 50%; position: absolute; top: 2px; left: 2px; transition: left 0.2s; }
+.toggle.on .toggle-knob { left: 18px; }
 
 /* Flow color section */
 .flow-color-section { margin-bottom: 1.25rem; }
@@ -156,7 +190,13 @@ watch(flowHue, v => {
   cursor: pointer;
 }
 
-.sheet-note { font-size: 11px; color: #ccc; margin: 0 0 1rem; }
+.segmented { display: flex; gap: 4px; }
+.seg-btn { width: 28px; height: 26px; border-radius: 6px; border: 1px solid #e0e0e0; background: #f5f5f5; font-size: 12px; color: #888; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.seg-btn.active { background: #D4537E; border-color: #D4537E; color: #fff; }
+
+.pref-row--input { align-items: center; gap: 12px; }
+.pref-input { flex: 1; border: none; border-bottom: 1px solid #e8e8e8; background: transparent; font-size: 13px; color: #333; text-align: right; padding: 2px 0; outline: none; min-width: 0; }
+.pref-input::placeholder { color: #ccc; }
 .close-btn { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #e0e0e0; background: #f5f5f5; font-size: 14px; color: #555; cursor: pointer; }
 
 .sheet-enter-active, .sheet-leave-active { transition: opacity 0.25s ease; }

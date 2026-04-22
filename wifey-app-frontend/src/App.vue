@@ -10,13 +10,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
 const env = import.meta.env.VITE_ENV
 const envLabel = env === 'dev' ? 'DEV' : env === 'uat' ? 'UAT' : null
-onMounted(() => {
-  const saved = localStorage.getItem('flow-hue')
-  if (saved) document.documentElement.style.setProperty('--flow-hue', saved)
-})
 </script>
 
 <style>

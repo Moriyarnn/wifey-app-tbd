@@ -141,5 +141,9 @@ vite.config.ts.timestamp-*
 # Database
 *.db
 
+# Auto-generated JWT secret
+wifey-app-backend/data/secret.key
+
+
 # Environment variables
 .env

@@ -1,9 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HubView from '../views/HubView.vue'
+import { getToken } from '../api'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/LoginView.vue')
+    },
     {
       path: '/',
       name: 'hub',
@@ -30,6 +36,14 @@ const router = createRouter({
       component: () => import('../views/LogsDashboard.vue')
     }
   ]
+})
+
+router.beforeEach((to, _from, next) => {
+  if (to.name !== 'login' && !getToken()) {
+    next({ name: 'login' })
+  } else {
+    next()
+  }
 })
 
 export default router

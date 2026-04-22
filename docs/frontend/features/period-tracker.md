@@ -17,9 +17,7 @@ Two methods are supported and coexist in the UI:
 
 **1. Retrospective range** — user selects a start + end date as a complete range after the period is done. `end_date` is set at log time. `currentCycle` is populated immediately.
 
-**2. Day-by-day (active)** — user taps each day as it happens. During an active period logged this way, `end_date` is not set until the user explicitly ends the period, so `currentCycle` can be `null` in queries and notification checks even though a period is ongoing. Do not assume a `null` `currentCycle` means no period is happening.
-
-**Issue #42 (pending):** Once shipped, `end_date` will always be auto-set to `MAX(date)` of logged days on every add or delete. Active cycle detection will shift from checking `end_date IS NULL` to checking `end_date = today or yesterday`. This eliminates the ambiguity in day-by-day logging.
+**2. Day-by-day (active)** — user taps each day as it happens. `end_date` is auto-set to `MAX(date)` of logged days on every add or delete (#36). A cycle is considered active if `end_date` is today or yesterday. `currentCycle` is populated as long as logging is recent.
 
 ## Key Logic
 - Summary data fetched from `GET /api/period/calculations/summary`
@@ -92,7 +90,7 @@ Gap-fill logic (`fillGapDays`) was removed as part of this work — the `small-g
 - UI complete
 - Flow intensity colors: complete (#24)
 - Adjust Cycle: complete (#26) — hold+drag resize, orphaned day badge
-- Period end wiring: pending
+- Period end wiring: complete (#36) — cycles auto-close; "End Period" button removed
+- Auto end_date + edge-day removal: complete (#36)
 - Bug #1 (justSaved): pending
 - OnboardingTutorial: complete — pending icon update (#22)
-- #42 (auto end_date): pending — will change active-cycle detection model

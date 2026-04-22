@@ -21,8 +21,6 @@ services:
     ports:
       - "3002:3000"
     volumes:
-      - ./wifey-app-backend:/app
-      - /app/node_modules
       - sqlite_data_uat:/app/data
     environment:
       - NODE_ENV=production

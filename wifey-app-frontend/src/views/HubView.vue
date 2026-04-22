@@ -1,98 +1,235 @@
 <template>
   <v-app>
     <v-main>
-      <div class="hub-wrapper">
+      <div class="hub-root">
 
-        <!-- Header -->
-        <div class="hub-header">
-          <div>
-            <p class="hub-date">{{ todayLabel }}</p>
-            <h1 class="hub-title">Wifey App</h1>
-            <p class="hub-subtitle">Good morning, my love</p>
-          </div>
-          <button class="settings-icon-btn" @click="settingsOpen = true">
-            <v-icon size="18" color="grey-darken-1">mdi-cog-outline</v-icon>
-          </button>
-        </div>
+        <!-- Desktop left panel -->
+        <div class="hub-left" aria-hidden="true">
+          <div class="hub-left-inner">
 
-        <!-- Scrollable status strip -->
-        <div class="strip-wrapper">
-          <div
-            class="strip-track"
-            @mousedown="dragStart"
-            @mouseup="dragEnd"
-            @touchstart.passive="touchStart"
-            @touchend.passive="touchEnd"
-          >
-            <div class="strip-inner" :style="{ transform: `translateX(-${current * 100}%)` }">
+            <div class="hub-brand">
+              <div class="hub-brand-icon">
+                <v-icon size="28" color="#D4537E">mdi-home-heart</v-icon>
+              </div>
+              <h1 class="hub-brand-title">House App</h1>
+              <p class="hub-brand-sub">Good morning, my love</p>
+              <p class="hub-brand-date">{{ todayLabel }}</p>
+            </div>
+
+            <div class="hub-status-list">
               <div
-                v-for="(card, i) in stripCards"
-                :key="i"
-                class="strip-card"
+                v-for="card in stripCards"
+                :key="card.label"
+                class="hub-status-card"
                 :style="{ background: card.bg, borderColor: card.border }"
               >
-                <p class="strip-label" :style="{ color: card.labelColor }">{{ card.label }}</p>
-                <p class="strip-message" :style="{ color: card.messageColor }">{{ card.message }}</p>
+                <p class="hub-status-label" :style="{ color: card.labelColor }">{{ card.label }}</p>
+                <p class="hub-status-msg" :style="{ color: card.messageColor }">{{ card.message }}</p>
               </div>
             </div>
-          </div>
-          <div class="strip-dots">
-            <span
-              v-for="(_, i) in stripCards"
-              :key="i"
-              class="dot"
-              :class="{ active: i === current }"
-              @click="goTo(i)"
-            />
-          </div>
-        </div>
 
-        <!-- App grid -->
-        <p class="section-label">Your apps</p>
-        <div class="app-grid">
-          <div
-            v-for="app in apps"
-            :key="app.name"
-            class="app-card"
-            :class="{ inactive: !app.active }"
-            :style="{ background: app.bg, borderColor: app.border }"
-            @click="app.active ? $router.push(app.route) : null"
-          >
-            <span class="app-badge" :style="{ background: app.border, color: app.badgeText }">
-              {{ app.active ? 'Active' : 'Soon' }}
-            </span>
-            <div class="app-icon" :style="{ background: app.border }">
-              <v-icon size="18" :color="app.iconColor">{{ app.icon }}</v-icon>
+            <div class="hub-left-footer">
+              <div class="hub-user-info">
+                <v-icon size="12" color="#bbb">mdi-account-circle-outline</v-icon>
+                <span>{{ currentUser?.username }}<span v-if="currentUser?.role === 'owner'"> · owner</span></span>
+              </div>
+              <button class="hub-logout-btn" @click="logout">Sign out</button>
             </div>
-            <p class="app-name" :style="{ color: app.titleColor }">{{ app.name }}</p>
-            <p class="app-sub" :style="{ color: app.subColor }">
-              {{ app.sub ?? (app.active ? 'Tap to open' : 'Coming soon') }}
-            </p>
+
           </div>
         </div>
 
+        <!-- Main panel -->
+        <div class="hub-main">
+
+          <!-- Mobile-only header -->
+          <div class="hub-header mobile-only">
+            <div>
+              <p class="hub-date">{{ todayLabel }}</p>
+              <h1 class="hub-title">House App</h1>
+              <p class="hub-subtitle">Good morning, my love</p>
+            </div>
+            <div class="header-actions">
+              <div v-if="currentUser" class="user-avatar-wrap">
+                <div
+                  class="user-avatar"
+                  :class="{ 'user-avatar--dev': isDev }"
+                  :title="currentUser.username"
+                  @click="isDev && (showSwitcher = !showSwitcher)"
+                >
+                  {{ currentUser.username[0].toUpperCase() }}
+                </div>
+                <div v-if="isDev && showSwitcher" class="dev-switcher">
+                  <p class="dev-switcher-label">Switch user</p>
+                  <div class="dev-switcher-btns">
+                    <button
+                      class="dev-switch-btn"
+                      :class="{ 'dev-switch-btn--pressed': currentUser.role === 'owner' }"
+                      @click="switchUser('owner')"
+                    >owner</button>
+                    <button
+                      class="dev-switch-btn"
+                      :class="{ 'dev-switch-btn--pressed': currentUser.role === 'partner' }"
+                      @click="switchUser('partner')"
+                    >partner</button>
+                  </div>
+                </div>
+              </div>
+              <button class="settings-icon-btn" @click="settingsOpen = true">
+                <v-icon size="18" color="grey-darken-1">mdi-cog-outline</v-icon>
+              </button>
+            </div>
+          </div>
+
+          <!-- Mobile-only status strip -->
+          <div class="strip-wrapper mobile-only">
+            <div
+              class="strip-track"
+              @mousedown="dragStart"
+              @mouseup="dragEnd"
+              @touchstart.passive="touchStart"
+              @touchend.passive="touchEnd"
+            >
+              <div class="strip-inner" :style="{ transform: `translateX(-${current * 100}%)` }">
+                <div
+                  v-for="(card, i) in stripCards"
+                  :key="i"
+                  class="strip-card"
+                  :style="{ background: card.bg, borderColor: card.border }"
+                >
+                  <p class="strip-label" :style="{ color: card.labelColor }">{{ card.label }}</p>
+                  <p class="strip-message" :style="{ color: card.messageColor }">{{ card.message }}</p>
+                </div>
+              </div>
+            </div>
+            <div class="strip-dots">
+              <span
+                v-for="(_, i) in stripCards"
+                :key="i"
+                class="dot"
+                :class="{ active: i === current }"
+                @click="goTo(i)"
+              />
+            </div>
+          </div>
+
+          <!-- Desktop-only mini-header -->
+          <div class="hub-desktop-header desktop-only">
+            <p class="section-label-top">Your apps</p>
+            <div class="header-actions">
+              <div v-if="currentUser" class="user-avatar-wrap">
+                <div
+                  class="user-avatar"
+                  :class="{ 'user-avatar--dev': isDev }"
+                  :title="currentUser.username"
+                  @click="isDev && (showSwitcher = !showSwitcher)"
+                >
+                  {{ currentUser.username[0].toUpperCase() }}
+                </div>
+                <div v-if="isDev && showSwitcher" class="dev-switcher">
+                  <p class="dev-switcher-label">Switch user</p>
+                  <div class="dev-switcher-btns">
+                    <button
+                      class="dev-switch-btn"
+                      :class="{ 'dev-switch-btn--pressed': currentUser.role === 'owner' }"
+                      @click="switchUser('owner')"
+                    >owner</button>
+                    <button
+                      class="dev-switch-btn"
+                      :class="{ 'dev-switch-btn--pressed': currentUser.role === 'partner' }"
+                      @click="switchUser('partner')"
+                    >partner</button>
+                  </div>
+                </div>
+              </div>
+              <button class="settings-icon-btn" @click="settingsOpen = true">
+                <v-icon size="18" color="grey-darken-1">mdi-cog-outline</v-icon>
+              </button>
+            </div>
+          </div>
+
+          <!-- App grid -->
+          <p class="section-label mobile-only">Your apps</p>
+          <div class="app-grid">
+            <div
+              v-for="app in apps"
+              :key="app.name"
+              class="app-card"
+              :class="{ inactive: !app.active }"
+              :style="{ background: app.bg, borderColor: app.border }"
+              @click="app.active ? $router.push(app.route) : null"
+            >
+              <span class="app-badge" :style="{ background: app.border, color: app.badgeText }">
+                {{ app.active ? 'Active' : 'Soon' }}
+              </span>
+              <div class="app-icon" :style="{ background: app.border }">
+                <v-icon size="18" :color="app.iconColor">{{ app.icon }}</v-icon>
+              </div>
+              <p class="app-name" :style="{ color: app.titleColor }">{{ app.name }}</p>
+              <p class="app-sub" :style="{ color: app.subColor }">
+                {{ app.sub ?? (app.active ? 'Tap to open' : 'Coming soon') }}
+              </p>
+            </div>
+          </div>
+
+          <p class="hub-privacy-note desktop-only">
+            <v-icon size="12" color="#ccc">mdi-lock-outline</v-icon>
+            No telemetry. Your data stays on your server.
+          </p>
+
+        </div>
       </div>
     </v-main>
 
-    <!-- Settings sheet -->
     <SettingsSheet v-model="settingsOpen" />
-
   </v-app>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import SettingsSheet from '../components/SettingsSheet.vue'
-import { API } from '../api'
+import { API, apiFetch, getUser, clearToken, clearUser, setToken, setUser } from '../api'
+import { usePreferences } from '../composables/usePreferences'
 
+const router = useRouter()
+const { fetchPreferences, resetCache: resetPreferences } = usePreferences()
 const settingsOpen = ref(false)
 const current = ref(0)
+const currentUser = ref(getUser())
+const isDev = import.meta.env.DEV
+const showSwitcher = ref(false)
 let timer = null
 let startX = 0
 
 const todayLabel = new Date().toLocaleDateString('en-US', {
   weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
 })
+
+function logout() {
+  clearToken()
+  clearUser()
+  resetPreferences()
+  router.push('/login')
+}
+
+async function switchUser(role) {
+  try {
+    const res = await fetch(`${API}/auth/dev-switch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role })
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    setToken(data.token)
+    setUser({ username: data.username, role: data.role })
+    currentUser.value = getUser()
+    showSwitcher.value = false
+    resetPreferences()
+    await fetchPreferences()
+  } catch {}
+}
 
 const stripCards = ref([
   {
@@ -176,14 +313,13 @@ function touchEnd(e) {
 onMounted(async () => {
   timer = setInterval(() => goTo(current.value + 1), 4000)
   try {
-    const res = await fetch(`${API}/period/calculations/summary`)
+    const res = await apiFetch(`${API}/period/calculations/summary`)
     const s = await res.json()
 
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const todayStr = today.toISOString().split('T')[0]
 
-    // ── Period card ────────────────────────────────���─────────────
     let periodMsg = 'Start logging to see predictions'
     if (s.currentCycle) {
       const start = new Date(s.currentCycle.start_date + 'T00:00:00')
@@ -199,7 +335,6 @@ onMounted(async () => {
     }
     stripCards.value[0].message = periodMsg
 
-    // ── Fertile window card (insert after period card if relevant) ─
     if (!s.currentCycle && s.fertileWindow) {
       const fStart = new Date(s.fertileWindow.start + 'T00:00:00')
       const fEnd   = new Date(s.fertileWindow.end   + 'T00:00:00')
@@ -225,7 +360,6 @@ onMounted(async () => {
       }
     }
 
-    // ── Irregular warning card ───────────────────────────────────
     if (s.isIrregular) {
       stripCards.value.splice(1, 0, {
         label: 'Cycle alert',
@@ -243,27 +377,229 @@ onUnmounted(() => clearInterval(timer))
 </script>
 
 <style scoped>
-.hub-wrapper { 
-  padding: 1.25rem; 
-  max-width: 480px; 
-  margin: 0 auto;
+/* ── Root layout ──────────────────────────────────────────────── */
+.hub-root {
+  display: flex;
+  min-height: 100vh;
+  background: #fafafa;
 }
 
-/* Scale up on larger screens for better visibility */
-@media (min-width: 769px) {
-  .hub-wrapper {
-    max-width: 540px;
-    transform: scale(1.12);
-    transform-origin: top center;
+/* ── Show/hide helpers ────────────────────────────────────────── */
+.mobile-only { display: block; }
+
+@media (max-width: 767px) {
+  .desktop-only { display: none !important; }
+}
+
+@media (min-width: 768px) {
+  .mobile-only { display: none !important; }
+}
+
+/* ── Left panel (desktop only) ────────────────────────────────── */
+.hub-left {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .hub-left {
+    display: flex;
+    flex: 1;
+    background: linear-gradient(160deg, #fff5f8 0%, #fdf0f5 40%, #f5f0fe 100%);
+    border-right: 1px solid #f0e0e8;
+    padding: 3rem;
+    align-items: flex-start;
+    justify-content: center;
   }
 }
 
-.hub-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+.hub-left-inner {
+  display: flex;
+  flex-direction: column;
+  max-width: 360px;
+  width: 100%;
+  height: 100%;
+  min-height: calc(100vh - 6rem);
+  justify-content: space-between;
+}
+
+/* Brand block */
+.hub-brand {
+  margin-bottom: 2rem;
+}
+
+.hub-brand-icon {
+  width: 52px;
+  height: 52px;
+  background: #fff;
+  border: 1.5px solid #F4C0D1;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.1rem;
+  box-shadow: 0 2px 8px rgba(212, 83, 126, 0.08);
+}
+
+.hub-brand-title {
+  font-size: 26px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+
+.hub-brand-sub {
+  font-size: 15px;
+  color: #888;
+  margin: 0 0 4px;
+  font-style: italic;
+}
+
+.hub-brand-date {
+  font-size: 12px;
+  color: #bbb;
+  margin: 0;
+}
+
+/* Status cards */
+.hub-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  padding: 0.25rem 0;
+}
+
+.hub-status-card {
+  border: 2px solid;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.hub-status-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0 0 3px;
+}
+
+.hub-status-msg {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+}
+
+/* Footer */
+.hub-left-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1.5rem;
+  border-top: 1px solid #f0e0e8;
+  margin-top: 1.5rem;
+}
+
+.hub-user-info {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #bbb;
+}
+
+.hub-logout-btn {
+  font-size: 12px;
+  color: #bbb;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s;
+}
+
+.hub-logout-btn:hover {
+  color: #D4537E;
+}
+
+/* ── Main panel ───────────────────────────────────────────────── */
+.hub-main {
+  flex: 1;
+  min-width: 0;
+  padding: 1.25rem;
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  .hub-main {
+    flex: 0 0 460px;
+    padding: 2rem 2.5rem;
+    overflow-y: auto;
+    max-height: 100vh;
+  }
+}
+
+/* Desktop mini-header */
+.hub-desktop-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.section-label-top {
+  font-size: 10px;
+  font-weight: 600;
+  color: #bbb;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+/* ── Mobile header ────────────────────────────────────────────── */
+.hub-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
 .hub-date { font-size: 12px; color: #888; margin: 0 0 2px; }
 .hub-title { font-size: 22px; font-weight: 500; margin: 0 0 2px; }
 .hub-subtitle { font-size: 13px; color: #aaa; margin: 0; }
 .settings-icon-btn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid #e0e0e0; background: #f5f5f5; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.header-actions { display: flex; gap: 8px; align-items: center; }
+.user-avatar-wrap { position: relative; flex-shrink: 0; }
+.user-avatar { width: 28px; height: 28px; border-radius: 50%; background: #FBEAF0; border: 1.5px solid #F4C0D1; color: #993556; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.user-avatar--dev { cursor: pointer; }
+.user-avatar--dev:hover { background: #f7dae6; }
 
+.dev-switcher {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: #fff;
+  border: 1px solid #f0e0e8;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 4px 16px rgba(153, 53, 86, 0.12);
+  z-index: 100;
+  min-width: 140px;
+}
+.dev-switcher-label { font-size: 10px; font-weight: 600; color: #bbb; letter-spacing: 0.06em; text-transform: uppercase; margin: 0 0 8px; }
+.dev-switcher-btns { display: flex; gap: 6px; }
+.dev-switch-btn {
+  flex: 1; padding: 6px 0; font-size: 12px; font-weight: 600;
+  color: #993556; background: #FBEAF0; border: 1.5px solid #F4C0D1;
+  border-radius: 8px; cursor: pointer;
+  box-shadow: 0 2px 0 #F4C0D1;
+  transform: translateY(0);
+  transition: box-shadow 0.1s, transform 0.1s, background 0.1s;
+}
+.dev-switch-btn:hover:not(.dev-switch-btn--pressed) { background: #f7dae6; }
+.dev-switch-btn--pressed { background: #f0c8d8; box-shadow: inset 0 2px 3px rgba(153, 53, 86, 0.2); transform: translateY(1px); }
+
+/* ── Strip (mobile) ───────────────────────────────────────────── */
 .strip-wrapper { margin-bottom: 1.25rem; }
 .strip-track { overflow: hidden; border-radius: 14px; cursor: grab; }
 .strip-inner { display: flex; transition: transform 0.35s cubic-bezier(.4,0,.2,1); }
@@ -274,6 +610,7 @@ onUnmounted(() => clearInterval(timer))
 .dot { width: 6px; height: 6px; border-radius: 50%; background: #ddd; cursor: pointer; display: inline-block; transition: background 0.2s; }
 .dot.active { background: #D4537E; }
 
+/* ── App grid ─────────────────────────────────────────────────── */
 .section-label { font-size: 10px; font-weight: 600; color: #bbb; letter-spacing: 0.07em; text-transform: uppercase; margin: 0 0 10px; }
 .app-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 1rem; }
 .app-card { border: 1px solid; border-radius: 12px; padding: 14px 12px; cursor: pointer; position: relative; transition: opacity 0.2s; }
@@ -283,8 +620,13 @@ onUnmounted(() => clearInterval(timer))
 .app-name { font-size: 13px; font-weight: 500; margin: 0 0 2px; }
 .app-sub { font-size: 11px; margin: 0; }
 
-.bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #f0f0f0; display: flex; justify-content: space-around; padding: 10px 0 16px; z-index: 50; }
-.nav-item { text-align: center; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.nav-label { font-size: 10px; color: #bbb; }
-.active-label { color: #D4537E; font-weight: 500; }
+/* ── Privacy note (desktop) ───────────────────────────────────── */
+.hub-privacy-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #ccc;
+  margin: 1rem 0 0;
+}
 </style>

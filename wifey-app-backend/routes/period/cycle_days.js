@@ -1,6 +1,7 @@
 const express = require('express')
 const router = express.Router()
 const { logPeriodEvent } = require('../../logger')
+const { requireOwner } = require('../../middleware/auth')
 
 module.exports = (db) => {
   // Get all cycle days with cycle info (for calendar population)
@@ -44,7 +45,7 @@ module.exports = (db) => {
   })
 
   // Log a day
-  router.post('/', (req, res) => {
+  router.post('/', requireOwner, (req, res) => {
     const { cycle_id, date, flow_intensity, notes, symptoms } = req.body
     if (!cycle_id || !date) return res.status(400).json({ error: 'cycle_id and date are required' })
 
@@ -62,12 +63,17 @@ module.exports = (db) => {
       symptoms.forEach(symptom => insertSymptom.run(cycle_day_id, symptom))
     }
 
+    // Auto-update end_date to the latest logged day for this cycle
+    db.prepare(`
+      UPDATE cycles SET end_date = (SELECT MAX(date) FROM cycle_days WHERE cycle_id = ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(cycle_id, cycle_id)
+
     logPeriodEvent(db, { entity: 'cycle_day', entity_id: cycle_day_id, action: 'create', cycle_id, date })
     res.json({ id: cycle_day_id, cycle_id, date })
   })
 
   // Update a day
-  router.patch('/:id', (req, res) => {
+  router.patch('/:id', requireOwner, (req, res) => {
     const { flow_intensity, notes, symptoms } = req.body
     const id = Number(req.params.id)
 
@@ -89,10 +95,10 @@ module.exports = (db) => {
   })
 
   // Delete a day
-  router.delete('/:id', (req, res) => {
+  router.delete('/:id', requireOwner, (req, res) => {
     const id = Number(req.params.id)
     const day = db.prepare(`
-      SELECT cd.cycle_id, cd.date, c.start_date
+      SELECT cd.cycle_id, cd.date, c.start_date, c.end_date as cycle_end_date
       FROM cycle_days cd
       JOIN cycles c ON c.id = cd.cycle_id
       WHERE cd.id = ?
@@ -103,13 +109,26 @@ module.exports = (db) => {
     db.prepare('DELETE FROM cycle_days WHERE id = ?').run(id)
     logPeriodEvent(db, { entity: 'cycle_day', entity_id: id, action: 'delete', cycle_id: day.cycle_id, date: day.date })
 
-    const remaining = db.prepare('SELECT COUNT(*) as cnt FROM cycle_days WHERE cycle_id = ?').get(day.cycle_id)
-    const cycle = db.prepare('SELECT end_date FROM cycles WHERE id = ?').get(day.cycle_id)
+    // Auto-update end_date to the latest remaining day (NULL if none left)
+    db.prepare(`
+      UPDATE cycles SET end_date = (SELECT MAX(date) FROM cycle_days WHERE cycle_id = ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(day.cycle_id, day.cycle_id)
 
-    if (remaining.cnt === 0 && cycle && !cycle.end_date) {
-      // No days left — remove the orphaned cycle so predictions recalculate cleanly
-      db.prepare('DELETE FROM cycles WHERE id = ?').run(day.cycle_id)
-    } else if (day.date === day.start_date && remaining.cnt > 0) {
+    const remaining = db.prepare('SELECT COUNT(*) as cnt FROM cycle_days WHERE cycle_id = ?').get(day.cycle_id)
+
+    if (remaining.cnt === 0) {
+      if (day.cycle_end_date && day.cycle_end_date > day.date) {
+        // end_date extended past deleted day — collapse to single-day on original end_date
+        db.prepare('UPDATE cycles SET start_date = ?, end_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .run(day.cycle_end_date, day.cycle_end_date, day.cycle_id)
+      } else if (day.start_date < day.date) {
+        // Cycle started before deleted day — collapse to single-day on start_date
+        db.prepare('UPDATE cycles SET end_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .run(day.start_date, day.cycle_id)
+      } else {
+        db.prepare('DELETE FROM cycles WHERE id = ?').run(day.cycle_id)
+      }
+    } else if (day.date === day.start_date) {
       // Deleted the start day — promote the earliest remaining day as the new cycle start
       const newStart = db.prepare(
         'SELECT date FROM cycle_days WHERE cycle_id = ? ORDER BY date ASC LIMIT 1'

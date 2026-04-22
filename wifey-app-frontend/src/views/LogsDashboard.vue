@@ -143,7 +143,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { API_BASE } from '../api'
+import { API_BASE, apiFetch } from '../api'
 
 const LIMIT = 200
 
@@ -169,7 +169,7 @@ async function fetchLogs() {
   loading.value = true
   error.value = null
   try {
-    const res = await fetch(`${API_BASE}/api/logs?offset=${offset.value}`)
+    const res = await apiFetch(`${API_BASE}/api/logs?offset=${offset.value}`)
     if (!res.ok) throw new Error(`Server responded ${res.status}`)
     const data = await res.json()
     logs.value = data

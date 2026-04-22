@@ -12,14 +12,9 @@
             <p class="period-date">{{ todayLabel }}</p>
             <h1 class="period-title">Period Tracker</h1>
           </div>
-          <div class="header-actions">
-            <button class="settings-icon-btn" @click="tutorialOpen = true" aria-label="Help">
-              <v-icon size="17" color="grey-darken-1">mdi-help-circle-outline</v-icon>
-            </button>
-            <button class="settings-icon-btn" @click="settingsOpen = true" aria-label="Settings">
-              <v-icon size="18" color="grey-darken-1">mdi-cog-outline</v-icon>
-            </button>
-          </div>
+          <button class="settings-icon-btn" @click="tutorialOpen = true" aria-label="Help">
+            <v-icon size="17" color="grey-darken-1">mdi-help-circle-outline</v-icon>
+          </button>
         </div>
 
         <!-- Status strip -->
@@ -82,14 +77,14 @@
             >
               <span v-if="cell.day" class="cal-day-num">{{ cell.day }}</span>
               <span v-if="cell.dateStr && justSaved.has(cell.dateStr)" class="cal-saved-check">✓</span>
-              <span v-if="cell.day && (hasNote(cell) || hasDataWarning(cell) || hasOrphanedData(cell))" class="cal-cell-badges">
+              <span v-if="cell.day && (hasDataWarning(cell) || hasOrphanedData(cell) || (hasNote(cell) && (!isPartner || partnerCanReadNotes)))" class="cal-cell-badges">
                 <span v-if="hasDataWarning(cell)" class="cal-cell-badge cal-cell-badge-warn">
                   <v-icon size="18" color="#f59e0b">mdi-alert</v-icon>
                 </span>
                 <span v-if="hasOrphanedData(cell)" class="cal-cell-badge cal-cell-badge-orphan">
                   <v-icon size="18" color="#f97316">mdi-link-off</v-icon>
                 </span>
-                <span v-if="hasNote(cell)" class="cal-cell-badge cal-cell-badge-note">
+                <span v-if="hasNote(cell) && (!isPartner || partnerCanReadNotes)" class="cal-cell-badge cal-cell-badge-note">
                   <v-icon size="18" color="#94a3b8">mdi-note-text</v-icon>
                 </span>
               </span>
@@ -100,18 +95,20 @@
         </div>
 
         <!-- Drag hint -->
-        <p class="drag-hint">
-          <v-icon size="12" color="#D4537E">mdi-gesture-swipe-horizontal</v-icon>
-          Drag to log a completed period
-        </p>
-        <p class="drag-hint">
-          <v-icon size="12" color="#D4537E">mdi-gesture-tap</v-icon>
-          Tap a day to log your period as it happens
-        </p>
-        <p class="drag-hint">
-          <v-icon size="12" color="#D4537E">mdi-egg-outline</v-icon>
-          Tap between cycles to mark ovulation (optional)
-        </p>
+        <template v-if="!isPartner">
+          <p class="drag-hint">
+            <v-icon size="12" color="#D4537E">mdi-gesture-swipe-horizontal</v-icon>
+            Drag to log a completed period
+          </p>
+          <p class="drag-hint">
+            <v-icon size="12" color="#D4537E">mdi-gesture-tap</v-icon>
+            Tap a day to log your period as it happens
+          </p>
+          <p class="drag-hint">
+            <v-icon size="12" color="#D4537E">mdi-gesture-tap-hold</v-icon>
+            Hold any empty day to mark ovulation or log notes
+          </p>
+        </template>
 
         <!-- Legend -->
         <div class="legend">
@@ -133,8 +130,12 @@
           </div>
         </div>
 
-        <!-- Irregular cycle notice -->
-        <div v-if="summary?.isIrregular" class="irregular-card">
+        <!-- Irregular cycle notice (owner only) / read-only notice (partner) -->
+        <div v-if="isPartner" class="irregular-card">
+          <v-icon size="14" color="#993556">mdi-eye-outline</v-icon>
+          <span class="irregular-text">You're viewing as partner — period data is read-only</span>
+        </div>
+        <div v-else-if="summary?.isIrregular" class="irregular-card">
           <v-icon size="14" color="#993556">mdi-chart-bell-curve</v-icon>
           <span class="irregular-text">Your cycles are irregular — predictions may shift as more data is recorded</span>
         </div>
@@ -157,8 +158,6 @@
       </div>
     </v-main>
 
-    <!-- Settings sheet -->
-    <SettingsSheet v-model="settingsOpen" />
 
     <!-- First-launch tutorial (also triggered by ? button) -->
     <OnboardingTutorial :force-open="tutorialOpen" @close="tutorialOpen = false" />
@@ -197,9 +196,25 @@
       </div>
     </div>
 
-    <!-- Adjacency dialog — tapped date sits right next to an existing cycle -->
-    <div class="confirm-backdrop" :class="{ visible: adjacencyDialog.show }" @click="!adjacencyDialog.working && (adjacencyDialog.show = false)" />
-    <div class="confirm-modal" :class="{ open: adjacencyDialog.show }">
+    <!-- Short gap warning dialog -->
+    <div class="confirm-backdrop" :class="{ visible: showShortGapDialog }" @click="cancelShortGap" />
+    <div class="confirm-modal" :class="{ open: showShortGapDialog }">
+      <div class="confirm-inner">
+        <div class="confirm-icon">
+          <v-icon size="28" color="#b45309">mdi-calendar-clock-outline</v-icon>
+        </div>
+        <p class="confirm-title">Short gap since last period</p>
+        <p class="confirm-desc">This new cycle is only <strong>{{ shortGapDays }} day{{ shortGapDays === 1 ? '' : 's' }}</strong> away from an existing one. Starting a cycle this close may affect your predictions.<br><span style="font-size:11px;color:#b45309;">Are you sure?</span></p>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" @click="cancelShortGap">Cancel</button>
+          <button class="confirm-delete" style="background:#b45309" @click="confirmShortGap">Continue anyway</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Adjacency dialog — tapped date sits right next to an existing cycle (owner only) -->
+    <div v-if="!isPartner" class="confirm-backdrop" :class="{ visible: adjacencyDialog.show }" @click="!adjacencyDialog.working && (adjacencyDialog.show = false)" />
+    <div v-if="!isPartner" class="confirm-modal" :class="{ open: adjacencyDialog.show }">
       <div class="confirm-inner">
         <div class="confirm-icon">
           <v-icon size="28" color="#D4537E">mdi-calendar-arrow-right</v-icon>
@@ -262,13 +277,13 @@
             <v-icon size="36" color="#f97316">mdi-link-off</v-icon>
             <p>This day has logged data but is outside your cycle range.</p>
             <p>Delete this entry or adjust the cycle to include it.</p>
-            <button class="delete-orphan-btn" @click="deleteOrphanedDay">
+            <button v-if="!isPartner" class="delete-orphan-btn" @click="deleteOrphanedDay">
               <v-icon size="14" color="#c0392b">mdi-delete-outline</v-icon>
               Delete entry
             </button>
           </div>
 
-          <div v-else-if="selectedLoggedDay" class="view-content">
+          <div v-else-if="selectedLoggedDay || tapContext === 'open-cycle-day'" class="view-content">
             <!-- Flow intensity -->
             <div class="view-section">
               <p class="view-section-label">Flow</p>
@@ -277,7 +292,7 @@
                   v-for="level in ['spotting','light','medium','heavy']"
                   :key="level"
                   class="flow-chip"
-                  :class="{ 'flow-chip-active': selectedLoggedDay.flow_intensity === level }"
+                  :class="{ 'flow-chip-active': selectedLoggedDay?.flow_intensity === level }"
                 >{{ level }}</span>
               </div>
             </div>
@@ -291,26 +306,40 @@
             </div>
 
             <!-- Notes -->
-            <div class="view-section" v-if="selectedLoggedDay.notes">
+            <div class="view-section" v-if="selectedLoggedDay?.notes && (!isPartner || partnerCanReadNotes)">
               <p class="view-section-label">Notes</p>
               <p class="view-notes">{{ selectedLoggedDay.notes }}</p>
             </div>
 
-            <div class="view-actions">
+            <div v-if="!isPartner" class="view-actions">
               <button class="edit-btn" @click="switchToEdit">
                 <v-icon size="14" color="#993556">mdi-pencil-outline</v-icon>
                 Edit this day
               </button>
             </div>
-            <div v-if="selectedCycle" class="cycle-action-row">
-              <button v-if="!selectedCycle.end_date" class="end-period-btn" @click="endActivePeriod" :disabled="endingPeriod">
-                <v-icon size="14" color="#993556">mdi-calendar-check-outline</v-icon>
-                {{ endingPeriod ? 'Ending...' : 'End period on this day' }}
-              </button>
-              <button class="delete-cycle-btn" @click="showDeleteCycleDialog = true">
-                <v-icon size="12" color="#c0392b">mdi-calendar-remove-outline</v-icon>
-                Delete entire cycle
-              </button>
+            <div v-if="!isPartner && selectedCycle" class="cycle-action-row">
+              <div class="cycle-icon-actions">
+                <div class="cycle-icon-action">
+                  <button
+                    class="cycle-icon-btn"
+                    :class="{ 'cycle-icon-btn--disabled': !isEdgeDay }"
+                    :disabled="!isEdgeDay || removingDay"
+                    @click="removeDay"
+                  >
+                    <v-icon size="16" :color="isEdgeDay ? '#c0392b' : '#94a3b8'">mdi-trash-can-outline</v-icon>
+                  </button>
+                  <span class="cycle-icon-label" :class="{ 'cycle-icon-label--muted': !isEdgeDay }">
+                    {{ removingDay ? 'Removing...' : 'Remove this day' }}
+                  </span>
+                </div>
+                <div class="cycle-icon-action">
+                  <button class="cycle-icon-btn cycle-icon-btn--delete" @click="showDeleteCycleDialog = true">
+                    <v-icon size="16" color="#c0392b">mdi-calendar-remove-outline</v-icon>
+                  </button>
+                  <span class="cycle-icon-label">Delete cycle</span>
+                </div>
+              </div>
+              <p v-if="!isEdgeDay" class="remove-day-hint">Only the first or last day can be removed</p>
             </div>
           </div>
 
@@ -318,25 +347,27 @@
             <v-icon size="36" color="#F4C0D1">mdi-calendar-blank-outline</v-icon>
             <template v-if="selectedCycle">
               <p>No data logged for this day.</p>
-              <button class="log-prompt-btn" @click="mode = 'log'">Add entry</button>
-              <button v-if="!selectedCycle.end_date" class="end-period-btn" @click="endActivePeriod" :disabled="endingPeriod">
-                <v-icon size="14" color="#993556">mdi-calendar-check-outline</v-icon>
-                {{ endingPeriod ? 'Ending...' : 'End period on this day' }}
-              </button>
-              <button class="delete-cycle-btn delete-cycle-btn-solo" @click="showDeleteCycleDialog = true">
-                <v-icon size="12" color="#c0392b">mdi-calendar-remove-outline</v-icon>
-                Delete entire cycle
-              </button>
+              <template v-if="!isPartner">
+                <button class="log-prompt-btn" @click="mode = 'log'">Add entry</button>
+                <button class="delete-cycle-btn delete-cycle-btn-solo" @click="showDeleteCycleDialog = true">
+                  <v-icon size="12" color="#c0392b">mdi-calendar-remove-outline</v-icon>
+                  Delete entire cycle
+                </button>
+              </template>
             </template>
             <template v-else>
               <template v-if="ovulationCycle">
                 <p class="view-ovulation-label">
                   {{ isMarkedOvulation ? 'Ovulation day marked' : 'Between cycles' }}
                 </p>
-                <button class="ovulation-btn" @click="markOvulation" :disabled="markingOvulation">
-                  <v-icon size="14" color="#993556">mdi-egg-outline</v-icon>
+                <button v-if="!isPartner" class="ovulation-btn" :class="{ 'ovulation-btn--active': isMarkedOvulation }" @click="markOvulation" :disabled="markingOvulation">
+                  <v-icon size="14" :color="isMarkedOvulation ? '#854F0B' : '#993556'">mdi-egg-outline</v-icon>
                   {{ markingOvulation ? 'Saving...' : isMarkedOvulation ? 'Remove ovulation mark' : 'Mark as ovulation day' }}
                 </button>
+                <div v-if="!isPartner" class="gap-day-coming-soon">
+                  <v-icon size="13" color="#cca7b8">mdi-flask-outline</v-icon>
+                  <span>Symptoms &amp; notes coming soon</span>
+                </div>
               </template>
               <template v-else>
                 <p>Not part of a cycle.</p>
@@ -347,7 +378,7 @@
         </template>
 
         <!-- LOG mode content -->
-        <template v-else>
+        <template v-else-if="!isPartner">
           <div class="log-form">
             <!-- Flow intensity -->
             <div class="form-section">
@@ -396,14 +427,6 @@
               </button>
             </div>
 
-            <!-- End period from log form (open cycles only) -->
-            <div v-if="relevantActiveCycle && ['consecutive', 'small-gap', 'open-cycle-day'].includes(tapContext)" class="form-end-period-row">
-              <button class="end-period-btn" @click="saveAndEndPeriod" :disabled="saving">
-                <v-icon size="14" color="#993556">mdi-calendar-check-outline</v-icon>
-                {{ saving ? 'Saving...' : 'End period on this day' }}
-              </button>
-            </div>
-
             <!-- Delete cycle from log form -->
             <div v-if="selectedCycle" class="form-delete-cycle-row">
               <button class="delete-cycle-btn delete-cycle-btn-solo" @click="showDeleteCycleDialog = true">
@@ -434,14 +457,22 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import SettingsSheet from '../../components/SettingsSheet.vue'
 import OnboardingTutorial from '../../components/OnboardingTutorial.vue'
-import { API } from '../../api'
+import { API, apiFetch, getUser } from '../../api'
+import { useSettings } from '../../composables/useSettings'
+import { usePreferences } from '../../composables/usePreferences'
 
-const settingsOpen = ref(false)
+const currentUser = ref(getUser())
+const isPartner = computed(() => currentUser.value?.role === 'partner')
+const { settings, fetchSettings } = useSettings()
+const { fetchPreferences, resetCache: resetPreferences } = usePreferences()
+const partnerCanReadNotes = computed(() => settings.value.partner_can_read_notes === '1')
+
+
 const tutorialOpen = ref(false)
 const warningsOpen = ref(true)
 const pulseDates = ref(new Set())
+let pulseTimeout = null
 const mode = ref('view') // set automatically on day click
 const saving = ref(false)
 const justSaved = ref(new Set())
@@ -473,7 +504,10 @@ function showHintBubble(x, date, message = "Can't log future dates", variant = '
   if (hintBubbleTimer) clearTimeout(hintBubbleTimer)
   const cellEl = document.querySelector(`[data-date="${date}"]`)
   const y = cellEl ? cellEl.getBoundingClientRect().top : hintBubble.value.y
-  hintBubble.value = { visible: true, x, y, message, variant }
+  const wrapper = document.querySelector('.period-wrapper')
+  const wRect = wrapper ? wrapper.getBoundingClientRect() : { left: 0, right: window.innerWidth }
+  const clampedX = Math.max(wRect.left + 80, Math.min(x, wRect.right - 80))
+  hintBubble.value = { visible: true, x: clampedX, y, message, variant }
   hintBubbleTimer = setTimeout(() => { hintBubble.value.visible = false }, 1500)
 }
 
@@ -490,6 +524,11 @@ const showLongCycleDialog = ref(false)
 const longCycleDays = ref(0)
 const longCyclePendingFn = ref(null)
 const longCycleWarnedIds = new Set() // cycle IDs already warned this session
+
+// Short gap warning dialog
+const showShortGapDialog = ref(false)
+const shortGapDays = ref(0)
+const shortGapPendingFn = ref(null)
 
 // Adjacency dialog — shown when a tapped date sits immediately next to an existing cycle
 const adjacencyDialog = ref({ show: false, prevCycle: null, nextCycle: null, pendingCell: null, working: false })
@@ -523,15 +562,21 @@ function cycleRangeLabel(cycle) {
 const markingOvulation = ref(false)
 
 // Day-by-day logging
-const tapContext = ref(null) // 'no-cycle' | 'consecutive' | 'large-gap' | 'closed-cycle' | 'open-cycle-day' | 'orphaned'
+const tapContext = ref(null) // 'no-cycle' | 'consecutive' | 'large-gap' | 'open-cycle-day' | 'orphaned'
 const endingPeriod = ref(false)
+const removingDay = ref(false)
 
 // Adjust Cycle mode
 const adjustingCycleId = ref(null)
 const adjustHandle = ref(null)       // 'start' | 'end'
 const adjustHoldTimer = ref(null)
+const adjustVibrateTimer = ref(null)  // fires at 250ms to start vibrate feedback
 const adjustDragActive = ref(false)
 const adjustPreviewDate = ref(null)
+const holdPendingCycleId = ref(null) // cycle being "charged" during a hold-to-adjust gesture
+const gapHoldTimer = ref(null)
+const gapVibrateTimer = ref(null)
+const gapHoldPendingDate = ref(null)
 
 // Data from API
 const allCycleDays = ref([])   // { id, cycle_id, date, flow_intensity, notes, symptoms (csv), cycle_start, cycle_end }
@@ -805,6 +850,7 @@ const predictedOvulationDates = computed(() => {
   // Past + present: one ovulation per logged cycle
   allCycles.value.forEach(cycle => {
     if (warnedDates.has(cycle.start_date)) return
+    if (cycle.ovulation_date) return // manual mark exists — don't overlay a predicted tint
     const nextPeriodForCycle = new Date(cycle.start_date + 'T00:00:00')
     nextPeriodForCycle.setDate(nextPeriodForCycle.getDate() + s.avgCycleLength)
     const day = new Date(nextPeriodForCycle)
@@ -849,14 +895,13 @@ const warningDateSet = computed(() => {
 })
 
 
-// The single cycle with no end_date (day-by-day active period)
-// Returns the open cycle most relevant to a given date:
-// the open cycle whose last_logged_day (or start_date) is the latest value still <= ds.
-// This lets multiple open cycles coexist — each tap resolves to the cycle it belongs to.
+// Returns the active cycle relevant to a given date.
+// A cycle is considered active if its end_date is today or yesterday (end_date always equals MAX logged day via #36).
 function findRelevantOpenCycle(ds) {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
   return allCycles.value
-    .filter(c => !c.end_date && (c.last_logged_day || c.start_date) <= ds)
-    .sort((a, b) => (b.last_logged_day || b.start_date).localeCompare(a.last_logged_day || a.start_date))[0] ?? null
+    .filter(c => c.end_date && c.end_date >= yesterday && c.start_date <= ds)
+    .sort((a, b) => b.start_date.localeCompare(a.start_date))[0] ?? null
 }
 
 // Reactive version for template and computed use (depends on selectedCell)
@@ -994,8 +1039,14 @@ function goToWarning(w) {
   } else {
     ;(w.affectedDates ?? [w.targetDate]).forEach(d => dates.add(d))
   }
-  pulseDates.value = dates
-  setTimeout(() => { pulseDates.value = new Set() }, 1600)
+  if (pulseTimeout) clearTimeout(pulseTimeout)
+  pulseDates.value = new Set()
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      pulseDates.value = dates
+      pulseTimeout = setTimeout(() => { pulseDates.value = new Set() }, 1600)
+    })
+  })
 }
 
 const todayStr = new Date().toISOString().split('T')[0]
@@ -1005,7 +1056,9 @@ function getCellClass(cell, i) {
   const classes = []
 
   // Drag anchor: scale up the first and last cell of the current drag range
-  if (dragStart.value && dragEnd.value) {
+  // Suppress when hold-pending is active on this cell — avoid competing border styles
+  const isHoldPending = (holdPendingCycleId.value && dateToCycleId.value.get(cell.dateStr) === holdPendingCycleId.value) || gapHoldPendingDate.value === cell.dateStr
+  if (!isHoldPending && dragStart.value && dragEnd.value) {
     const ds = dragStart.value <= dragEnd.value ? dragStart.value : dragEnd.value
     const de = dragStart.value <= dragEnd.value ? dragEnd.value : dragStart.value
     if (cell.dateStr === ds || cell.dateStr === de) classes.push('cal-drag-anchor')
@@ -1040,6 +1093,7 @@ function getCellClass(cell, i) {
         classes.push('cal-adjust-removing')
       }
     }
+    if (pulseDates.value.has(cell.dateStr)) classes.push('cal-cell-pulse')
     return classes
   }
   if (cell.dateStr === todayStr) classes.push('cal-today')
@@ -1062,6 +1116,8 @@ function getCellClass(cell, i) {
   else if (fertileDates.value.has(cell.dateStr)) classes.push('cal-fertile')
   if (cell.day) classes.push('cal-cell-day')
   if (pulseDates.value.has(cell.dateStr)) classes.push('cal-cell-pulse')
+  if (holdPendingCycleId.value && dateToCycleId.value.get(cell.dateStr) === holdPendingCycleId.value) classes.push('cal-cell-hold-pending')
+  if (gapHoldPendingDate.value === cell.dateStr) classes.push('cal-cell-hold-pending')
 
   // Adjust Cycle mode: highlight handles and dim other cycles
   if (adjustingCycleId.value) {
@@ -1170,11 +1226,14 @@ function onDayClick(cell) {
 
   if (!context) {
     if (periodDates.value.has(ds)) {
-      context = 'closed-cycle'
+      context = 'open-cycle-day'
     } else {
       context = 'no-cycle'
     }
   }
+
+  // Partner can't log — nothing to show on non-period days
+  if (isPartner.value && ['no-cycle', 'consecutive', 'large-gap'].includes(context)) return
 
   // Quick-log: immediately save new period days without opening a form
   if (['no-cycle', 'consecutive', 'large-gap'].includes(context)) {
@@ -1205,14 +1264,23 @@ function onDayClick(cell) {
     return
   }
 
-  // Already-logged day (open-cycle-day, closed-cycle): open view panel for details/editing
   tapContext.value = context
   selectedCell.value = cell
+
+  if (!logged) {
+    // In a cycle but no cycle_day record (drag-created or legacy)
+    if (isPartner.value) return  // nothing to show partner
+    mode.value = 'view'
+    form.value = { flow_intensity: '', symptoms: [], notes: '' }
+    return
+  }
+
+  // Already-logged day (open-cycle-day): open view panel for details/editing
   mode.value = 'view'
   form.value = {
-    flow_intensity: logged?.flow_intensity ?? '',
-    symptoms: logged?.symptoms ? logged.symptoms.split(',').map(s => s.trim()).filter(Boolean) : [],
-    notes: logged?.notes ?? ''
+    flow_intensity: logged.flow_intensity ?? '',
+    symptoms: logged.symptoms ? logged.symptoms.split(',').map(s => s.trim()).filter(Boolean) : [],
+    notes: logged.notes ?? ''
   }
 }
 
@@ -1249,6 +1317,10 @@ async function quickLogDay(cell) {
       const dayCount = (new Date(ds + 'T00:00:00') - new Date(active.start_date + 'T00:00:00')) / 86400000 + 1
       if (guardLongCycle(dayCount, doLog, active.id)) return
     }
+  }
+
+  if (['no-cycle', 'large-gap'].includes(tapContext.value)) {
+    if (guardShortGap(ds, doLog)) return
   }
 
   await doLog()
@@ -1328,13 +1400,13 @@ async function commitAdjust() {
 }
 
 async function applyAdjust({ cycleId, newStart, newEnd, emptyDays, handle, newDates = [] }) {
-  await fetch(`${API}/period/cycles/${cycleId}/adjust`, {
+  await apiFetch(`${API}/period/cycles/${cycleId}/adjust`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(handle === 'start' ? { start_date: newStart } : { end_date: newEnd })
   })
   if (emptyDays.length) {
-    await Promise.all(emptyDays.map(d => fetch(`${API}/period/cycle-days/${d.id}`, { method: 'DELETE' })))
+    await Promise.all(emptyDays.map(d => apiFetch(`${API}/period/cycle-days/${d.id}`, { method: 'DELETE' })))
   }
   await loadData()
   if (newDates.length) flashDates(newDates)
@@ -1350,6 +1422,52 @@ async function confirmLongCycleAdjust() {
 function cancelLongCycleAdjust() {
   showLongCycleDialog.value = false
   longCyclePendingFn.value = null
+}
+
+function guardShortGap(newStartDate, fn) {
+  // Check the cycle that ends closest before newStartDate
+  const preceding = allCycles.value
+    .filter(c => c.end_date && c.end_date < newStartDate)
+    .sort((a, b) => b.end_date.localeCompare(a.end_date))[0]
+  if (preceding) {
+    const days = Math.round(
+      (new Date(newStartDate + 'T00:00:00') - new Date(preceding.end_date + 'T00:00:00')) / 86400000
+    )
+    if (days > 0 && days < 7) {
+      shortGapDays.value = days
+      shortGapPendingFn.value = fn
+      showShortGapDialog.value = true
+      return true
+    }
+  }
+  // Check the cycle that starts closest after newStartDate
+  const following = allCycles.value
+    .filter(c => c.start_date > newStartDate)
+    .sort((a, b) => a.start_date.localeCompare(b.start_date))[0]
+  if (following) {
+    const days = Math.round(
+      (new Date(following.start_date + 'T00:00:00') - new Date(newStartDate + 'T00:00:00')) / 86400000
+    )
+    if (days > 0 && days < 7) {
+      shortGapDays.value = days
+      shortGapPendingFn.value = fn
+      showShortGapDialog.value = true
+      return true
+    }
+  }
+  return false
+}
+
+async function confirmShortGap() {
+  showShortGapDialog.value = false
+  const fn = shortGapPendingFn.value
+  shortGapPendingFn.value = null
+  if (fn) await fn()
+}
+
+function cancelShortGap() {
+  showShortGapDialog.value = false
+  shortGapPendingFn.value = null
 }
 
 function guardLongCycle(dayCount, fn, cycleId = null) {
@@ -1370,7 +1488,7 @@ async function deleteOrphanedDay() {
   if (!ds) return
   const day = allCycleDays.value.find(d => d.date === ds)
   if (!day) return
-  await fetch(`${API}/period/cycle-days/${day.id}`, { method: 'DELETE' })
+  await apiFetch(`${API}/period/cycle-days/${day.id}`, { method: 'DELETE' })
   closePanel()
   await loadData()
 }
@@ -1406,25 +1524,53 @@ function onCellMouseDown(cell, ev) {
     return
   }
 
+  // Period cell: hold-to-adjust only — no drag-to-log
+  // PREMIUM GATE (frontend) — Phase 5: check isPremium() here. If not licensed, show locked bottom sheet explaining Adjust Cycle is premium. This is UX only — enforcement is on the backend.
+  if (!isPartner.value && periodDates.value.has(cell.dateStr)) {
+    const cycleId = dateToCycleId.value.get(cell.dateStr)
+    const cycle = allCycles.value.find(c => c.id === cycleId)
+    const cycleEnd = cycle?.end_date || cycle?.last_logged_day
+    if (cycleId && cycle && cycle.start_date !== cycleEnd) {
+      dragStart.value = cell.dateStr
+      adjustVibrateTimer.value = setTimeout(() => {
+        adjustVibrateTimer.value = null
+        holdPendingCycleId.value = cycleId
+      }, 250)
+      adjustHoldTimer.value = setTimeout(() => {
+        adjustHoldTimer.value = null
+        holdPendingCycleId.value = null
+        dragStart.value = null
+        adjustingCycleId.value = cycleId
+      }, 500)
+      return
+    }
+  }
+
+  // Gap cell: hold 500ms to open ovulation/notes panel
+  if (!isPartner.value && cell.dateStr <= todayStr && !orphanedDaySet.value.has(cell.dateStr) && !periodDates.value.has(cell.dateStr)) {
+    gapVibrateTimer.value = setTimeout(() => {
+      gapVibrateTimer.value = null
+      gapHoldPendingDate.value = cell.dateStr
+    }, 250)
+    gapHoldTimer.value = setTimeout(() => {
+      gapHoldTimer.value = null
+      gapHoldPendingDate.value = null
+      if (dragMoved.value) return
+      isDragging.value = false
+      dragStart.value = null
+      dragEnd.value = null
+      dragMoved.value = false
+      tapContext.value = null
+      form.value = { flow_intensity: '', symptoms: [], notes: '' }
+      selectedCell.value = cell
+      mode.value = 'view'
+    }, 500)
+  }
+
   isDragging.value = true
   dragMoved.value = false
   dragStart.value = cell.dateStr
   dragEnd.value = cell.dateStr
-
-  // Hold on a period cell: 500ms without movement → enter adjust mode
-  if (periodDates.value.has(cell.dateStr)) {
-    const cycleId = dateToCycleId.value.get(cell.dateStr)
-    if (cycleId) {
-      adjustHoldTimer.value = setTimeout(() => {
-        adjustHoldTimer.value = null
-        isDragging.value = false
-        dragStart.value = null
-        dragEnd.value = null
-        dragMoved.value = false
-        adjustingCycleId.value = cycleId
-      }, 500)
-    }
-  }
 }
 
 function onCellMouseEnter(cell) {
@@ -1432,12 +1578,22 @@ function onCellMouseEnter(cell) {
     adjustPreviewDate.value = cell.dateStr
     return
   }
-  if (!isDragging.value || !cell.dateStr) return
-  // Movement before hold fires: cancel hold, proceed with drag-create
+  // Cancel period hold on movement to a different cell — no drag-to-log fallback
   if (adjustHoldTimer.value && cell.dateStr !== dragStart.value) {
     clearTimeout(adjustHoldTimer.value)
     adjustHoldTimer.value = null
+    if (adjustVibrateTimer.value) { clearTimeout(adjustVibrateTimer.value); adjustVibrateTimer.value = null }
+    holdPendingCycleId.value = null
+    dragStart.value = null
+    return
   }
+  if (gapHoldTimer.value && cell.dateStr !== dragStart.value) {
+    clearTimeout(gapHoldTimer.value)
+    gapHoldTimer.value = null
+    if (gapVibrateTimer.value) { clearTimeout(gapVibrateTimer.value); gapVibrateTimer.value = null }
+    gapHoldPendingDate.value = null
+  }
+  if (!isDragging.value || !cell.dateStr) return
   dragEnd.value = cell.dateStr
   if (cell.dateStr !== dragStart.value) dragMoved.value = true
 }
@@ -1449,10 +1605,23 @@ function onDocumentMouseUp(ev = {}) {
     return
   }
 
-  // Cancel hold timer on any mouseup
+  // Early release on a period hold: treat as a normal tap
   if (adjustHoldTimer.value) {
     clearTimeout(adjustHoldTimer.value)
     adjustHoldTimer.value = null
+    if (adjustVibrateTimer.value) { clearTimeout(adjustVibrateTimer.value); adjustVibrateTimer.value = null }
+    holdPendingCycleId.value = null
+    const startDate = dragStart.value
+    dragStart.value = null
+    const cell = calendarCells.value.find(c => c.dateStr === startDate)
+    if (cell && cell.day && !cell.faded) onDayClick(cell)
+    return
+  }
+  if (gapHoldTimer.value) {
+    clearTimeout(gapHoldTimer.value)
+    gapHoldTimer.value = null
+    if (gapVibrateTimer.value) { clearTimeout(gapVibrateTimer.value); gapVibrateTimer.value = null }
+    gapHoldPendingDate.value = null
   }
 
   if (!isDragging.value) return
@@ -1490,6 +1659,7 @@ function onDocumentMouseUp(ev = {}) {
     return
   }
 
+  if (isPartner.value) { dragStart.value = null; dragEnd.value = null; return }
   doSwipeCreate(ev.clientX ?? window.innerWidth / 2, s, e)
 }
 
@@ -1507,19 +1677,114 @@ function onTouchStart(e) {
   const el = document.elementFromPoint(touch.clientX, touch.clientY)
   const cellEl = el?.closest('[data-date]')
   if (!cellEl) return
+  const dateStr = cellEl.dataset.date
+
+  // Adjust mode: touching a handle starts the drag; touching elsewhere exits
+  if (adjustingCycleId.value) {
+    const ac = adjustCycle.value
+    if (ac) {
+      const acEnd = ac.end_date || ac.last_logged_day
+      if (dateStr === ac.start_date) {
+        adjustHandle.value = 'start'
+        adjustPreviewDate.value = dateStr
+        adjustDragActive.value = true
+        return
+      }
+      if (dateStr === acEnd) {
+        adjustHandle.value = 'end'
+        adjustPreviewDate.value = dateStr
+        adjustDragActive.value = true
+        return
+      }
+      if (dateToCycleId.value.get(dateStr) === adjustingCycleId.value) return
+    }
+    exitAdjustMode()
+    return
+  }
+
+  // Period cell: hold-to-adjust only — no drag-to-log
+  // PREMIUM GATE (frontend) — Phase 5: check isPremium() here.
+  if (!isPartner.value && periodDates.value.has(dateStr)) {
+    const cycleId = dateToCycleId.value.get(dateStr)
+    const cycle = allCycles.value.find(c => c.id === cycleId)
+    const cycleEnd = cycle?.end_date || cycle?.last_logged_day
+    if (cycleId && cycle && cycle.start_date !== cycleEnd) {
+      dragStart.value = dateStr
+      adjustVibrateTimer.value = setTimeout(() => {
+        adjustVibrateTimer.value = null
+        holdPendingCycleId.value = cycleId
+      }, 250)
+      adjustHoldTimer.value = setTimeout(() => {
+        adjustHoldTimer.value = null
+        holdPendingCycleId.value = null
+        dragStart.value = null
+        adjustingCycleId.value = cycleId
+      }, 500)
+      return
+    }
+  }
+
+  // Gap cell: hold 500ms to open ovulation/notes panel
+  if (!isPartner.value && dateStr <= todayStr && !periodDates.value.has(dateStr)) {
+    const cell = calendarCells.value.find(c => c.dateStr === dateStr)
+    if (cell && !orphanedDaySet.value.has(dateStr)) {
+      gapVibrateTimer.value = setTimeout(() => {
+        gapVibrateTimer.value = null
+        gapHoldPendingDate.value = dateStr
+      }, 250)
+      gapHoldTimer.value = setTimeout(() => {
+        gapHoldTimer.value = null
+        gapHoldPendingDate.value = null
+        if (dragMoved.value) return
+        isDragging.value = false
+        dragStart.value = null
+        dragEnd.value = null
+        dragMoved.value = false
+        tapContext.value = null
+        form.value = { flow_intensity: '', symptoms: [], notes: '' }
+        selectedCell.value = cell
+        mode.value = 'view'
+      }, 500)
+    }
+  }
+
   isDragging.value = true
   dragMoved.value = false
-  dragStart.value = cellEl.dataset.date
-  dragEnd.value = cellEl.dataset.date
+  dragStart.value = dateStr
+  dragEnd.value = dateStr
 }
 
 function onTouchMove(e) {
-  if (!isDragging.value) return
   const touch = e.touches[0]
   const el = document.elementFromPoint(touch.clientX, touch.clientY)
   const cellEl = el?.closest('[data-date]')
   if (!cellEl) return
   const dateStr = cellEl.dataset.date
+
+  // Propagate adjust drag on touch
+  if (adjustDragActive.value) {
+    adjustPreviewDate.value = dateStr
+    return
+  }
+
+  // Cancel period hold on movement to a different cell — no drag-to-log fallback
+  if (adjustHoldTimer.value && dateStr !== dragStart.value) {
+    clearTimeout(adjustHoldTimer.value)
+    adjustHoldTimer.value = null
+    if (adjustVibrateTimer.value) { clearTimeout(adjustVibrateTimer.value); adjustVibrateTimer.value = null }
+    holdPendingCycleId.value = null
+    dragStart.value = null
+    return
+  }
+  if (gapHoldTimer.value && dateStr !== dragStart.value) {
+    clearTimeout(gapHoldTimer.value)
+    gapHoldTimer.value = null
+    if (gapVibrateTimer.value) { clearTimeout(gapVibrateTimer.value); gapVibrateTimer.value = null }
+    gapHoldPendingDate.value = null
+  }
+
+  if (!isDragging.value) return
+
   if (dateStr !== dragEnd.value) {
     dragEnd.value = dateStr
     if (dateStr !== dragStart.value) dragMoved.value = true
@@ -1536,7 +1801,7 @@ async function markOvulation() {
   markingOvulation.value = true
   try {
     const newDate = isMarkedOvulation.value ? null : selectedCell.value.dateStr
-    await fetch(`${API}/period/cycles/${ovulationCycle.value.id}/ovulation`, {
+    await apiFetch(`${API}/period/cycles/${ovulationCycle.value.id}/ovulation`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ovulation_date: newDate })
@@ -1556,7 +1821,7 @@ async function doSwipeCreate(x, s, e) {
     dragRange.value = { start: s, end: e }
     creating.value = true
     try {
-      const startRes = await fetch(`${API}/period/cycles/start`, {
+      const startRes = await apiFetch(`${API}/period/cycles/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1565,24 +1830,35 @@ async function doSwipeCreate(x, s, e) {
         })
       })
       const { id } = await startRes.json()
-      await fetch(`${API}/period/cycles/${id}/end`, {
+      await apiFetch(`${API}/period/cycles/${id}/end`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ end_date: e })
       })
-      dragRange.value = null
-      dragStart.value = null
-      dragEnd.value = null
-      await loadData()
       const allDays = []
       let cur = new Date(s + 'T00:00:00')
       const endD = new Date(e + 'T00:00:00')
       while (cur <= endD) { allDays.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1) }
+      await Promise.all(allDays.map(date => apiFetch(`${API}/period/cycle-days`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cycle_id: id, date })
+      })))
+      dragRange.value = null
+      dragStart.value = null
+      dragEnd.value = null
+      await loadData()
       flashDates(allDays)
       showHintBubble(x, s, `Period logged: ${label}`, 'green')
     } finally {
       creating.value = false
     }
+  }
+
+  if (guardShortGap(s, doCreate)) {
+    dragStart.value = null
+    dragEnd.value = null
+    return
   }
 
   if (guardLongCycle(dayCount, doCreate)) {
@@ -1606,6 +1882,16 @@ const selectedCycle = computed(() => {
     const end = c.end_date || c.last_logged_day
     return c.start_date <= ds && (!end || end >= ds)
   }) ?? null
+})
+
+const isEdgeDay = computed(() => {
+  const ds = selectedCell.value?.dateStr
+  const c = selectedCycle.value
+  if (!ds || !c) return null
+  if (ds === c.start_date) return 'first'
+  const end = c.end_date || c.last_logged_day
+  if (end && ds === end) return 'last'
+  return null
 })
 
 const selectedCycleLabel = computed(() => {
@@ -1680,7 +1966,7 @@ async function onAdjacencyExtendPrevSilent(prevCycle, cell) {
   const dayCount = (new Date(cell.dateStr + 'T00:00:00') - new Date(prevCycle.start_date + 'T00:00:00')) / 86400000 + 1
   const doExtend = async () => {
     try {
-      await fetch(`${API}/period/cycles/${prevCycle.id}/end`, {
+      await apiFetch(`${API}/period/cycles/${prevCycle.id}/end`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ end_date: cell.dateStr })
@@ -1704,7 +1990,7 @@ async function onAdjacencyExtendNextSilent(nextCycle, cell) {
     : 1
   const doExtend = async () => {
     try {
-      await fetch(`${API}/period/cycles/${nextCycle.id}/start`, {
+      await apiFetch(`${API}/period/cycles/${nextCycle.id}/start`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ start_date: cell.dateStr })
@@ -1727,7 +2013,7 @@ async function onAdjacencyExtendPrev() {
   const doExtend = async () => {
     adjacencyDialog.value.working = true
     try {
-      await fetch(`${API}/period/cycles/${prevCycle.id}/end`, {
+      await apiFetch(`${API}/period/cycles/${prevCycle.id}/end`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ end_date: pendingCell.dateStr })
@@ -1757,7 +2043,7 @@ async function onAdjacencyExtendNext() {
   const doExtend = async () => {
     adjacencyDialog.value.working = true
     try {
-      await fetch(`${API}/period/cycles/${nextCycle.id}/start`, {
+      await apiFetch(`${API}/period/cycles/${nextCycle.id}/start`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ start_date: pendingCell.dateStr })
@@ -1789,7 +2075,7 @@ async function deleteCycle() {
   if (!cycle) return
   deletingCycle.value = true
   try {
-    await fetch(`${API}/period/cycles/${cycle.id}`, { method: 'DELETE' })
+    await apiFetch(`${API}/period/cycles/${cycle.id}`, { method: 'DELETE' })
     showDeleteCycleDialog.value = false
     closePanel()
     await loadData()
@@ -1799,13 +2085,57 @@ async function deleteCycle() {
 }
 
 // ── Day-by-day logging ───────────────────────────────────────
+async function removeDay() {
+  const ds = selectedCell.value?.dateStr
+  const c = selectedCycle.value
+  if (!isEdgeDay.value || !ds || !c) return
+  removingDay.value = true
+  try {
+    const day = selectedLoggedDay.value
+    if (day) {
+      await apiFetch(`${API}/period/cycle-days/${day.id}`, { method: 'DELETE' })
+    } else if (isEdgeDay.value === 'last') {
+      const prev = new Date(ds + 'T00:00:00')
+      prev.setDate(prev.getDate() - 1)
+      const newEnd = prev.toISOString().split('T')[0]
+      if (newEnd < c.start_date) {
+        await apiFetch(`${API}/period/cycles/${c.id}`, { method: 'DELETE' })
+      } else {
+        await apiFetch(`${API}/period/cycles/${c.id}/adjust`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ end_date: newEnd })
+        })
+      }
+    } else if (isEdgeDay.value === 'first') {
+      const next = new Date(ds + 'T00:00:00')
+      next.setDate(next.getDate() + 1)
+      const newStart = next.toISOString().split('T')[0]
+      const end = c.end_date || c.last_logged_day
+      if (end && newStart > end) {
+        await apiFetch(`${API}/period/cycles/${c.id}`, { method: 'DELETE' })
+      } else {
+        await apiFetch(`${API}/period/cycles/${c.id}/adjust`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start_date: newStart })
+        })
+      }
+    }
+    closePanel()
+    await loadData()
+  } finally {
+    removingDay.value = false
+  }
+}
+
 async function endActivePeriod() {
   const active = relevantActiveCycle.value
   const ds = selectedCell.value?.dateStr
   if (!active || !ds) return
   endingPeriod.value = true
   try {
-    await fetch(`${API}/period/cycles/${active.id}/end`, {
+    await apiFetch(`${API}/period/cycles/${active.id}/end`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ end_date: ds })
@@ -1826,7 +2156,7 @@ async function _saveCycleDayCore(ds) {
 
   if (!cycleId) {
     if (ctx === 'no-cycle') {
-      const res = await fetch(`${API}/period/cycles/start`, {
+      const res = await apiFetch(`${API}/period/cycles/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ start_date: ds, predicted_start_date: summary.value?.nextPeriodDate ?? null })
@@ -1834,15 +2164,7 @@ async function _saveCycleDayCore(ds) {
       const data = await res.json()
       cycleId = data.id
     } else if (ctx === 'large-gap') {
-      const active = findRelevantOpenCycle(ds)
-      if (active) {
-        await fetch(`${API}/period/cycles/${active.id}/end`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ end_date: active.last_logged_day || active.start_date })
-        })
-      }
-      const res = await fetch(`${API}/period/cycles/start`, {
+      const res = await apiFetch(`${API}/period/cycles/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ start_date: ds, predicted_start_date: summary.value?.nextPeriodDate ?? null })
@@ -1853,7 +2175,7 @@ async function _saveCycleDayCore(ds) {
       const active = findRelevantOpenCycle(ds)
       if (!active) return null
       cycleId = active.id
-    } else if (ctx === 'closed-cycle' || ctx === 'open-cycle-day') {
+    } else if (ctx === 'open-cycle-day') {
       const match = allCycles.value.find(c => {
         const end = c.end_date || c.last_logged_day
         return c.start_date <= ds && (!end || end >= ds)
@@ -1866,7 +2188,7 @@ async function _saveCycleDayCore(ds) {
   if (!cycleId) return null
 
   if (existing) {
-    await fetch(`${API}/period/cycle-days/${existing.id}`, {
+    await apiFetch(`${API}/period/cycle-days/${existing.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1876,7 +2198,7 @@ async function _saveCycleDayCore(ds) {
       })
     })
   } else {
-    await fetch(`${API}/period/cycle-days`, {
+    await apiFetch(`${API}/period/cycle-days`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1899,7 +2221,7 @@ async function saveAndEndPeriod() {
   try {
     const cycleId = await _saveCycleDayCore(ds)
     if (!cycleId) return
-    await fetch(`${API}/period/cycles/${cycleId}/end`, {
+    await apiFetch(`${API}/period/cycles/${cycleId}/end`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ end_date: ds })
@@ -1920,9 +2242,9 @@ async function saveAndEndPeriod() {
 // ── Data loading ─────────────────────────────────────────────
 async function loadData() {
   const [daysRes, summaryRes, cyclesRes] = await Promise.all([
-    fetch(`${API}/period/cycle-days/all`),
-    fetch(`${API}/period/calculations/summary`),
-    fetch(`${API}/period/cycles`)
+    apiFetch(`${API}/period/cycle-days/all`),
+    apiFetch(`${API}/period/calculations/summary`),
+    apiFetch(`${API}/period/cycles`)
   ])
   allCycleDays.value = await daysRes.json()
   summary.value = await summaryRes.json()
@@ -1931,6 +2253,7 @@ async function loadData() {
 
 onMounted(() => {
   loadData()
+  fetchSettings()
   document.addEventListener('mouseup', onDocumentMouseUp)
   document.addEventListener('keydown', onAdjustKeydown)
 })
@@ -1940,6 +2263,8 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onAdjustKeydown)
   if (hintBubbleTimer) clearTimeout(hintBubbleTimer)
   if (adjustHoldTimer.value) clearTimeout(adjustHoldTimer.value)
+  if (gapHoldTimer.value) clearTimeout(gapHoldTimer.value)
+  if (gapVibrateTimer.value) clearTimeout(gapVibrateTimer.value)
 })
 </script>
 
@@ -1978,11 +2303,7 @@ onUnmounted(() => {
 }
 .period-date { font-size: 12px; color: #888; margin: 0 0 2px; }
 .period-title { font-size: 22px; font-weight: 500; margin: 0; color: #72243E; }
-.header-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
+
 .settings-icon-btn {
   width: 34px; height: 34px; border-radius: 50%;
   border: 1px solid #e0e0e0; background: #f5f5f5;
@@ -2439,6 +2760,13 @@ onUnmounted(() => {
   cursor: pointer; margin-top: 4px;
 }
 .ovulation-btn:disabled { opacity: 0.6; cursor: default; }
+.ovulation-btn--active { background: #FFF0D6; border-color: #FAC775; color: #854F0B; }
+.gap-day-coming-soon {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; color: #cca7b8; margin-top: 10px;
+  padding: 6px 12px; border-radius: 16px;
+  border: 1px dashed #f4c0d1; background: #fdf5f8;
+}
 
 .irregular-card {
   display: flex; align-items: center; gap: 8px;
@@ -2454,14 +2782,6 @@ onUnmounted(() => {
   padding: 6px 14px; cursor: pointer;
 }
 .view-actions { display: flex; gap: 8px; align-items: center; }
-.edit-btn {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 12px; color: #993556;
-  background: #FBEAF0; border: 1px solid #F4C0D1;
-  border-radius: 20px; padding: 6px 14px;
-  cursor: pointer;
-}
-.cycle-action-row { margin-top: 6px; }
 .delete-cycle-btn {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 11px; color: #c0392b;
@@ -2471,6 +2791,13 @@ onUnmounted(() => {
 }
 .delete-cycle-btn:hover { opacity: 1; }
 .delete-cycle-btn-solo { margin-top: 4px; }
+.edit-btn {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: #993556;
+  background: #FBEAF0; border: 1px solid #F4C0D1;
+  border-radius: 20px; padding: 6px 14px;
+  cursor: pointer;
+}
 
 /* Confirm modal */
 .confirm-backdrop {
@@ -2622,25 +2949,53 @@ onUnmounted(() => {
 .btn-save:disabled { opacity: 0.6; cursor: default; }
 
 
-/* Day-by-day action buttons */
-.end-period-btn {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 12px; color: #993556;
-  background: #FBEAF0; border: 1px solid #F4C0D1;
-  border-radius: 20px; padding: 6px 14px;
-  cursor: pointer; margin-top: 4px;
+.cycle-action-row { margin-top: 10px; }
+.cycle-icon-actions { display: flex; gap: 20px; align-items: flex-start; }
+.cycle-icon-action { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.cycle-icon-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid #f1a1b0; background: #FBEAF0;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.end-period-btn:disabled { opacity: 0.6; cursor: default; }
-.form-end-period-row {
-  margin-top: 8px;
-  display: flex;
-  justify-content: center;
+.cycle-icon-btn--disabled {
+  border-color: #e2e8f0; background: #f8fafc; cursor: default;
+}
+.cycle-icon-btn--delete { border-color: #f1a1b0; background: #FBEAF0; }
+.cycle-icon-label { font-size: 10px; color: #993556; text-align: center; }
+.cycle-icon-label--muted { color: #94a3b8; }
+.remove-day-hint {
+  font-size: 10px; color: #94a3b8;
+  margin: 4px 0 0; padding: 0;
 }
 .form-delete-cycle-row {
   margin-top: 6px;
   display: flex;
   justify-content: center;
 }
+/* ── Hold-to-adjust charging indicator ──────────────────────── */
+@keyframes hold-vibrate {
+  0%, 100% { transform: translateX(0); }
+  25%       { transform: translateX(-1.5px); }
+  75%       { transform: translateX(1.5px); }
+}
+.cal-cell-hold-pending {
+  border-top: 2px solid rgba(0, 0, 0, 0.65) !important;
+  border-bottom: 2px solid rgba(0, 0, 0, 0.65) !important;
+  animation: hold-vibrate 0.12s ease-in-out infinite;
+  position: relative;
+  z-index: 1;
+}
+.cal-cell-hold-pending.cal-period-row-start {
+  border-left: 2px solid rgba(0, 0, 0, 0.65) !important;
+}
+.cal-cell-hold-pending.cal-period-row-end {
+  border-right: 2px solid rgba(0, 0, 0, 0.65) !important;
+}
+.cal-cell-hold-pending:not(.cal-period) {
+  border-left: 2px solid rgba(0, 0, 0, 0.65) !important;
+  border-right: 2px solid rgba(0, 0, 0, 0.65) !important;
+}
+
 /* ── Adjust Cycle mode ───────────────────────────────────────── */
 @keyframes handle-pulse {
   0%, 100% { outline-color: #993556; outline-offset: 1px; }

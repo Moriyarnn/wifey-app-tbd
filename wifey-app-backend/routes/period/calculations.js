@@ -219,17 +219,15 @@ module.exports = (db) => {
     }
 
     // Is she currently on her period?
-    // A cycle is active if today falls within start_date and effective end (end_date or last logged day)
+    // A cycle is active if end_date is today or yesterday (end_date is always kept at MAX logged day via #36)
     const currentCycle = db.prepare(`
       SELECT c.*
       FROM cycles c
-      LEFT JOIN cycle_days cd ON cd.cycle_id = c.id
       WHERE c.start_date <= ?
-      GROUP BY c.id
-      HAVING COALESCE(c.end_date, MAX(cd.date)) >= ?
+        AND c.end_date >= date('now', '-1 day')
       ORDER BY c.start_date DESC
       LIMIT 1
-    `).get(today, today)
+    `).get(today)
 
     logPeriodCalculation(db, {
       source: 'api',

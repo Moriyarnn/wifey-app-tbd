@@ -39,7 +39,7 @@ async function sendEmail (subject, html) {
   }
   const transport = createTransport()
   await transport.sendMail({
-    from: `"Wifey App 💌" <${process.env.GMAIL_USER}>`,
+    from: `"${_runContext.senderName}" <${process.env.GMAIL_USER}>`,
     to: process.env.RECIPIENT_EMAIL,
     subject,
     html
@@ -186,10 +186,16 @@ function getSummary (db) {
 // Email templates — cute and affectionate tone for the household version
 // ---------------------------------------------------------------------------
 
+// Set once per run in runNotifications so all templates pick up current settings without arg threading
+let _runContext = {
+  signoff: 'Sent with love by your household app 💕',
+  senderName: 'Wifey App 💌'
+}
+
 const wrap = (body) => `
 <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:24px;background:#fff9fc;border-radius:12px;border:1px solid #f0d6e8;">
   ${body}
-  <p style="margin-top:32px;font-size:12px;color:#bbb;">Sent with love by your household app 💕</p>
+  <p style="margin-top:32px;font-size:12px;color:#bbb;">${_runContext.signoff}</p>
 </div>`
 
 // ---------------------------------------------------------------------------
@@ -216,7 +222,7 @@ const NOTIFICATION_TYPES = [
       !currentCycle && !!nextPeriodDate && daysBetween(nextPeriodDate, today) === 3,
     subject: () => '💗 Your period is coming in 3 days',
     html: ({ nextPeriodDate }) => wrap(`
-      <h2 style="color:#c06;">Hey love 💕</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 💕</h2>
       <p>Just a little heads-up — your period is expected in <strong>3 days</strong> (around <strong>${nextPeriodDate}</strong>).</p>
       <p>Maybe a good time to make sure you have everything you need. You've got this! 🌸</p>`)
   },
@@ -228,7 +234,7 @@ const NOTIFICATION_TYPES = [
       !currentCycle && !!nextPeriodDate && daysBetween(nextPeriodDate, today) === 2,
     subject: () => '💗 Period expected in 2 days',
     html: ({ nextPeriodDate }) => wrap(`
-      <h2 style="color:#c06;">Hey sweetheart 🌸</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 🌸</h2>
       <p>Your period is expected in <strong>2 days</strong> (around <strong>${nextPeriodDate}</strong>).</p>
       <p>Take it easy, drink some tea, and be gentle with yourself. I love you! 💗</p>`)
   },
@@ -240,7 +246,7 @@ const NOTIFICATION_TYPES = [
       !currentCycle && !!nextPeriodDate && daysBetween(nextPeriodDate, today) === 1,
     subject: () => '💗 Period expected tomorrow',
     html: () => wrap(`
-      <h2 style="color:#c06;">Hey love 💕</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 💕</h2>
       <p>Your period is expected <strong>tomorrow</strong>. Make sure you're prepared and be extra gentle with yourself today.</p>
       <p>Sending you all the warmth 🌸</p>`)
   },
@@ -252,7 +258,7 @@ const NOTIFICATION_TYPES = [
       !currentCycle && !!nextPeriodDate && daysBetween(today, nextPeriodDate) === 3,
     subject: () => '🌷 Period is a few days late',
     html: () => wrap(`
-      <h2 style="color:#c06;">Hey love 🌷</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 🌷</h2>
       <p>Your period is a few days late — don't stress, bodies can be unpredictable sometimes!</p>
       <p>Take it easy, I'm thinking of you 💗</p>`)
   },
@@ -264,7 +270,7 @@ const NOTIFICATION_TYPES = [
     check: ({ isIrregular }) => isIrregular === true,
     subject: () => '📊 Your periods have been a little unpredictable lately',
     html: () => wrap(`
-      <h2 style="color:#c06;">Hey love 💗</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 💗</h2>
       <p>Your periods have been a little all over the place lately — sometimes earlier, sometimes later than usual.</p>
       <p>That's pretty normal and can happen for all kinds of reasons. Just thought you should know 🌸</p>`)
   },
@@ -276,7 +282,7 @@ const NOTIFICATION_TYPES = [
       !!fertileWindow && daysBetween(fertileWindow.start, today) === -1,
     subject: () => '🌿 Fertile window starts tomorrow',
     html: ({ fertileWindow }) => wrap(`
-      <h2 style="color:#c06;">Hey love 🌿</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 🌿</h2>
       <p>Your fertile window is predicted to start <strong>tomorrow</strong> (${fertileWindow?.start} – ${fertileWindow?.end}).</p>
       <p>Just a little heads-up! 💗</p>`)
   },
@@ -288,7 +294,7 @@ const NOTIFICATION_TYPES = [
       !!fertileWindow && fertileWindow.start === today,
     subject: () => '🌿 Your fertile window is active today',
     html: ({ fertileWindow }) => wrap(`
-      <h2 style="color:#c06;">Hey love 🌿</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 🌿</h2>
       <p>Your fertile window is <strong>active today</strong> and runs through <strong>${fertileWindow?.end}</strong>.</p>
       <p>Just letting you know! 💗</p>`)
   },
@@ -299,7 +305,7 @@ const NOTIFICATION_TYPES = [
     check: ({ ovulationDate, today }) => !!ovulationDate && ovulationDate === today,
     subject: () => '🌟 Today is your predicted ovulation day',
     html: () => wrap(`
-      <h2 style="color:#c06;">Hey love 🌟</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 🌟</h2>
       <p>Today is your <strong>predicted ovulation day</strong> — your peak fertility day this cycle.</p>
       <p>Take care of yourself! 💗</p>`)
   },
@@ -311,7 +317,7 @@ const NOTIFICATION_TYPES = [
       !!fertileWindow && fertileWindow.end === today,
     subject: () => '🌿 Last day of your fertile window',
     html: ({ fertileWindow }) => wrap(`
-      <h2 style="color:#c06;">Hey love 🌿</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 🌿</h2>
       <p>Today is the <strong>last day of your fertile window</strong> (${fertileWindow?.start} – ${fertileWindow?.end}).</p>
       <p>Sending you love! 💗</p>`)
   },
@@ -323,7 +329,7 @@ const NOTIFICATION_TYPES = [
       !currentCycle && !!nextPeriodDate && daysBetween(nextPeriodDate, today) === 5,
     subject: () => '🫂 PMS window may be starting',
     html: ({ nextPeriodDate }) => wrap(`
-      <h2 style="color:#c06;">Hey love 🫂</h2>
+      <h2 style="color:#c06;">Hey ${_runContext.greeting} 🫂</h2>
       <p>Your period is expected in about <strong>5 days</strong> (around ${nextPeriodDate}), which means the PMS window may be starting.</p>
       <p>Be extra kind to yourself this week — snacks, warmth, and rest are all valid. I love you! 💗</p>`)
   },
@@ -428,11 +434,27 @@ const NOTIFICATION_TYPES = [
 // Core runner
 // ---------------------------------------------------------------------------
 
+const PERIOD_DUE_LEAD_DAYS = { period_due_1d: 1, period_due_2d: 2, period_due_3d: 3 }
+
 async function runNotifications (db, trigger = 'scheduled') {
   autoCloseStale(db)
 
   const summary = getSummary(db)
   const { today } = summary
+
+  // Read app settings
+  const settingRows = db.prepare('SELECT key, value FROM settings').all()
+  const appSettings = {}
+  settingRows.forEach(r => { appSettings[r.key] = r.value })
+
+  const notificationsEnabled = appSettings.notifications_enabled !== '0'
+  const reminderDays = parseInt(appSettings.reminder_days ?? '3', 10)
+
+  _runContext = {
+    signoff: appSettings.notification_signoff || 'Sent with love by your household app 💕',
+    senderName: appSettings.notification_sender_name || 'Wifey App 💌',
+    greeting: appSettings.notification_greeting || 'love'
+  }
 
   // Mark this daily run as done for today (prevents duplicate runs on restart)
   try {
@@ -440,6 +462,11 @@ async function runNotifications (db, trigger = 'scheduled') {
       "INSERT OR IGNORE INTO notification_log (type_id, date_key) VALUES ('__daily_run__', ?)"
     ).run(today)
   } catch (_) { /* already recorded */ }
+
+  if (!notificationsEnabled) {
+    console.log('🔕 Notifications disabled — skipping run')
+    return
+  }
 
   console.log(`🔔 Running notification checks for ${today}`)
 
@@ -451,6 +478,11 @@ async function runNotifications (db, trigger = 'scheduled') {
   let total_errors = 0
 
   for (const type of NOTIFICATION_TYPES) {
+    // Skip period_due types suppressed by reminder_days setting
+    if (PERIOD_DUE_LEAD_DAYS[type.id] !== undefined && PERIOD_DUE_LEAD_DAYS[type.id] > reminderDays) {
+      total_skipped++
+      continue
+    }
     const dateKey = type.dateKey(today, db)
     total_checked++
 
