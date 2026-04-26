@@ -186,36 +186,45 @@ module.exports = (db) => {
         )
       : 0
 
-    // Next period prediction
+    // Next period prediction — always a future date
     let nextPeriodDate = null
     if (lastCycle) {
-      const lastStart = new Date(lastCycle.start_date)
-      const predicted = new Date(lastStart)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const predicted = new Date(lastCycle.start_date + 'T00:00:00')
       predicted.setDate(predicted.getDate() + avgCycleLength + Math.round(avgPredictionError))
+      while (predicted < today) {
+        predicted.setDate(predicted.getDate() + avgCycleLength)
+      }
       nextPeriodDate = predicted.toISOString().split('T')[0]
     }
 
-    // Fertile window and ovulation (based on next predicted period + personalised luteal phase)
-    let fertileWindow = null
-    let ovulationDate = null
-    if (nextPeriodDate) {
-      const nextPeriod = new Date(nextPeriodDate)
+    // Fertile window and ovulation — read from stored predictions on the most recent cycle
+    // (same source as the calendar) to guarantee both surfaces always agree
+    const fertileWindow = lastCycle?.predicted_fertile_start
+      ? { start: lastCycle.predicted_fertile_start, end: lastCycle.predicted_fertile_end }
+      : null
+    const ovulationDate = lastCycle?.ovulation_date ?? lastCycle?.predicted_ovulation_date ?? null
 
-      // Ovulation is avgLutealPhase days before next period
-      const ovulation = new Date(nextPeriod)
-      ovulation.setDate(ovulation.getDate() - avgLutealPhase)
-      ovulationDate = ovulation.toISOString().split('T')[0]
-
-      // Fertile window is 5 days before ovulation and 1 day after
-      const fertileStart = new Date(ovulation)
-      fertileStart.setDate(fertileStart.getDate() - 5)
-      const fertileEnd = new Date(ovulation)
-      fertileEnd.setDate(fertileEnd.getDate() + 1)
-
-      fertileWindow = {
-        start: fertileStart.toISOString().split('T')[0],
-        end: fertileEnd.toISOString().split('T')[0]
-      }
+    // Next fertile window and ovulation — always future, always bound to nextPeriodDate.
+    // Gated at 3 cycles (2 start-to-start intervals) so predictions are based on real data.
+    // nextPeriodDate is also nulled below that threshold.
+    let nextFertileWindow = null
+    let nextOvulationDate = null
+    if (cycleLengths.length >= 2 && nextPeriodDate) {
+      // Fertile window belongs to the cycle that STARTS on nextPeriodDate,
+      // mirroring how each logged cycle on the calendar has its fertile window after it
+      const cycleStart = new Date(nextPeriodDate + 'T00:00:00')
+      const ov = new Date(cycleStart)
+      ov.setDate(ov.getDate() + avgCycleLength - avgLutealPhase)
+      const fStart = new Date(ov)
+      fStart.setDate(fStart.getDate() - 5)
+      const fEnd = new Date(ov)
+      fEnd.setDate(fEnd.getDate() + 1)
+      nextFertileWindow = { start: fStart.toISOString().split('T')[0], end: fEnd.toISOString().split('T')[0] }
+      nextOvulationDate = ov.toISOString().split('T')[0]
+    } else {
+      nextPeriodDate = null
     }
 
     // Is she currently on her period?
@@ -247,6 +256,8 @@ module.exports = (db) => {
       avgCycleLength,
       avgPeriodLength,
       nextPeriodDate,
+      nextFertileWindow,
+      nextOvulationDate,
       ovulationDate,
       fertileWindow,
       confidenceWindow,
@@ -254,8 +265,8 @@ module.exports = (db) => {
       currentCycle: currentCycle || null,
       totalCyclesTracked: allCycles.length,
       dataWarnings,
-      note: cycleLengths.length < 3
-        ? 'Predictions will improve after tracking 3 or more cycles'
+      note: cycleLengths.length < 2
+        ? 'Track 3 cycles to unlock period and fertile window predictions'
         : null
     })
   })

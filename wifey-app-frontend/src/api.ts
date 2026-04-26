@@ -44,7 +44,9 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   if (res.status === 401) {
     clearToken()
     clearUser()
-    window.location.href = '/login'
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login'
+    }
   }
   return res
 }

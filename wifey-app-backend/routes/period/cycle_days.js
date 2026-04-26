@@ -2,6 +2,7 @@ const express = require('express')
 const router = express.Router()
 const { logPeriodEvent } = require('../../logger')
 const { requireOwner } = require('../../middleware/auth')
+const { recomputeAllPredictions } = require('./_calcHelpers')
 
 module.exports = (db) => {
   // Get all cycle days with cycle info (for calendar population)
@@ -117,7 +118,14 @@ module.exports = (db) => {
     const remaining = db.prepare('SELECT COUNT(*) as cnt FROM cycle_days WHERE cycle_id = ?').get(day.cycle_id)
 
     if (remaining.cnt === 0) {
-      if (day.cycle_end_date && day.cycle_end_date > day.date) {
+      if (day.date === day.start_date && day.cycle_end_date && day.cycle_end_date > day.date) {
+        // Deleted the only cycle_day but the cycle range extends beyond — advance start_date by one day.
+        // Happens when adjacent days were extended via /end without creating cycle_day rows (retroactive logging).
+        const nextDate = new Date(day.date + 'T00:00:00')
+        nextDate.setDate(nextDate.getDate() + 1)
+        db.prepare('UPDATE cycles SET start_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .run(nextDate.toISOString().split('T')[0], day.cycle_id)
+      } else if (day.cycle_end_date && day.cycle_end_date > day.date) {
         // end_date extended past deleted day — collapse to single-day on original end_date
         db.prepare('UPDATE cycles SET start_date = ?, end_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
           .run(day.cycle_end_date, day.cycle_end_date, day.cycle_id)
@@ -139,6 +147,9 @@ module.exports = (db) => {
     }
 
     res.json({ success: true })
+    if (remaining.cnt === 0 || day.date === day.start_date) {
+      setImmediate(() => recomputeAllPredictions(db))
+    }
   })
 
   return router

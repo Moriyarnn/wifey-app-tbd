@@ -1,42 +1,9 @@
 <template>
-  <v-app>
-    <v-main>
-      <div class="hub-root">
+  <div class="hub-root">
 
-        <!-- Desktop left panel -->
-        <div class="hub-left" aria-hidden="true">
-          <div class="hub-left-inner">
-
-            <div class="hub-brand">
-              <div class="hub-brand-icon">
-                <v-icon size="28" color="#D4537E">mdi-home-heart</v-icon>
-              </div>
-              <h1 class="hub-brand-title">House App</h1>
-              <p class="hub-brand-sub">Good morning, my love</p>
-              <p class="hub-brand-date">{{ todayLabel }}</p>
-            </div>
-
-            <div class="hub-status-list">
-              <div
-                v-for="card in stripCards"
-                :key="card.label"
-                class="hub-status-card"
-                :style="{ background: card.bg, borderColor: card.border }"
-              >
-                <p class="hub-status-label" :style="{ color: card.labelColor }">{{ card.label }}</p>
-                <p class="hub-status-msg" :style="{ color: card.messageColor }">{{ card.message }}</p>
-              </div>
-            </div>
-
-            <div class="hub-left-footer">
-              <div class="hub-user-info">
-                <v-icon size="12" color="#bbb">mdi-account-circle-outline</v-icon>
-                <span>{{ currentUser?.username }}<span v-if="currentUser?.role === 'owner'"> · owner</span></span>
-              </div>
-              <button class="hub-logout-btn" @click="logout">Sign out</button>
-            </div>
-
-          </div>
+        <!-- Desktop home panel -->
+        <div class="hub-desktop-panel">
+          <MainScreen />
         </div>
 
         <!-- Main panel -->
@@ -75,6 +42,9 @@
                   </div>
                 </div>
               </div>
+              <button class="settings-icon-btn" @click="router.push('/info')">
+                <v-icon size="18" color="grey-darken-1">mdi-home-outline</v-icon>
+              </button>
               <button class="settings-icon-btn" @click="settingsOpen = true">
                 <v-icon size="18" color="grey-darken-1">mdi-cog-outline</v-icon>
               </button>
@@ -82,36 +52,7 @@
           </div>
 
           <!-- Mobile-only status strip -->
-          <div class="strip-wrapper mobile-only">
-            <div
-              class="strip-track"
-              @mousedown="dragStart"
-              @mouseup="dragEnd"
-              @touchstart.passive="touchStart"
-              @touchend.passive="touchEnd"
-            >
-              <div class="strip-inner" :style="{ transform: `translateX(-${current * 100}%)` }">
-                <div
-                  v-for="(card, i) in stripCards"
-                  :key="i"
-                  class="strip-card"
-                  :style="{ background: card.bg, borderColor: card.border }"
-                >
-                  <p class="strip-label" :style="{ color: card.labelColor }">{{ card.label }}</p>
-                  <p class="strip-message" :style="{ color: card.messageColor }">{{ card.message }}</p>
-                </div>
-              </div>
-            </div>
-            <div class="strip-dots">
-              <span
-                v-for="(_, i) in stripCards"
-                :key="i"
-                class="dot"
-                :class="{ active: i === current }"
-                @click="goTo(i)"
-              />
-            </div>
-          </div>
+          <SummaryStrip class="mobile-only" />
 
           <!-- Desktop-only mini-header -->
           <div class="hub-desktop-header desktop-only">
@@ -150,14 +91,20 @@
 
           <!-- App grid -->
           <p class="section-label mobile-only">Your apps</p>
-          <div class="app-grid">
+          <TransitionGroup tag="div" class="app-grid" :name="transitionReady ? 'tile' : ''" ref="gridRef">
             <div
-              v-for="app in apps"
+              v-for="app in displayApps"
               :key="app.name"
+              :data-app="app.name"
               class="app-card"
-              :class="{ inactive: !app.active }"
+              :class="{
+                inactive: !app.active,
+                'app-card--placeholder': dragState?.appName === app.name,
+                'app-card--reorderable': reorderEnabled,
+              }"
               :style="{ background: app.bg, borderColor: app.border }"
-              @click="app.active ? $router.push(app.route) : null"
+              @pointerdown="onCardPointerDown($event, app.name)"
+              @click="onCardClick(app)"
             >
               <span class="app-badge" :style="{ background: app.border, color: app.badgeText }">
                 {{ app.active ? 'Active' : 'Soon' }}
@@ -170,37 +117,63 @@
                 {{ app.sub ?? (app.active ? 'Tap to open' : 'Coming soon') }}
               </p>
             </div>
-          </div>
+          </TransitionGroup>
 
-          <p class="hub-privacy-note desktop-only">
-            <v-icon size="12" color="#ccc">mdi-lock-outline</v-icon>
-            No telemetry. Your data stays on your server.
-          </p>
+          <!-- Drag ghost -->
+          <Teleport to="body">
+            <div v-if="ghostApp && dragState" class="drag-ghost" :style="ghostStyle">
+              <span class="app-badge" :style="{ background: ghostApp.border, color: ghostApp.badgeText }">
+                {{ ghostApp.active ? 'Active' : 'Soon' }}
+              </span>
+              <div class="app-icon" :style="{ background: ghostApp.border }">
+                <v-icon size="18" :color="ghostApp.iconColor">{{ ghostApp.icon }}</v-icon>
+              </div>
+              <p class="app-name" :style="{ color: ghostApp.titleColor }">{{ ghostApp.name }}</p>
+              <p class="app-sub" :style="{ color: ghostApp.subColor }">
+                {{ ghostApp.sub ?? (ghostApp.active ? 'Tap to open' : 'Coming soon') }}
+              </p>
+            </div>
+          </Teleport>
 
         </div>
-      </div>
-    </v-main>
-
     <SettingsSheet v-model="settingsOpen" />
-  </v-app>
+  </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import SettingsSheet from '../components/SettingsSheet.vue'
-import { API, apiFetch, getUser, clearToken, clearUser, setToken, setUser } from '../api'
+import SummaryStrip from '../components/SummaryStrip.vue'
+import MainScreen from '../components/MainScreen.vue'
+import { API, getUser, clearToken, clearUser, setToken, setUser, apiFetch } from '../api'
 import { usePreferences } from '../composables/usePreferences'
+import { apps } from '../composables/useApps'
 
 const router = useRouter()
-const { fetchPreferences, resetCache: resetPreferences } = usePreferences()
+const { preferences, fetchPreferences, updatePreference, resetCache: resetPreferences } = usePreferences()
 const settingsOpen = ref(false)
-const current = ref(0)
 const currentUser = ref(getUser())
 const isDev = import.meta.env.DEV
 const showSwitcher = ref(false)
-let timer = null
-let startX = 0
+
+const pantryStats = ref(null)
+
+onMounted(async () => {
+  try {
+    const res = await apiFetch(`${API}/pantry`)
+    if (res.ok) {
+      const pantryItems = await res.json()
+      const today = new Date().toISOString().split('T')[0]
+      const expiringSoon = pantryItems.filter(i => {
+        if (!i.expiry_date) return false
+        const days = Math.round((new Date(i.expiry_date + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000)
+        return days >= 0 && days <= 3
+      }).length
+      pantryStats.value = { count: pantryItems.length, expiringSoon }
+    }
+  } catch {}
+})
 
 const todayLabel = new Date().toLocaleDateString('en-US', {
   weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -224,156 +197,186 @@ async function switchUser(role) {
     const data = await res.json()
     setToken(data.token)
     setUser({ username: data.username, role: data.role })
-    currentUser.value = getUser()
-    showSwitcher.value = false
-    resetPreferences()
-    await fetchPreferences()
+    window.location.reload()
   } catch {}
 }
 
-const stripCards = ref([
-  {
-    label: 'Period tracker',
-    message: 'Loading...',
-    bg: '#FBEAF0', border: '#F4C0D1',
-    labelColor: '#993556', messageColor: '#72243E'
-  },
-  {
-    label: 'Event',
-    message: 'Wedding anniversary in 8 days — April 8',
-    bg: '#FAEEDA', border: '#FAC775',
-    labelColor: '#854F0B', messageColor: '#633806'
-  },
-  {
-    label: 'Reminder',
-    message: 'Doctor appointment tomorrow at 10am',
-    bg: '#EEEDFE', border: '#CECBF6',
-    labelColor: '#534AB7', messageColor: '#3C3489'
-  }
-])
+// --- Drag to reorder ---
+const gridRef = ref(null)
+const holdTimer = ref(null)
+const pointerOrigin = ref(null)
+let dragOccurred = false
+let lastHoverApp = null
+let insertDebounceTimer = null
 
-const apps = [
-  {
-    name: 'Period tracker', icon: 'mdi-heart-pulse', active: true, route: '/period',
-    bg: '#FBEAF0', border: '#F4C0D1', iconColor: '#993556',
-    titleColor: '#72243E', subColor: '#993556', badgeText: '#72243E'
-  },
-  {
-    name: 'Sleep tracker', icon: 'mdi-sleep', active: false, route: '',
-    bg: '#EDF0FB', border: '#B8C2F0', iconColor: '#3D52A0',
-    titleColor: '#2B3A7A', subColor: '#3D52A0', badgeText: '#2B3A7A'
-  },
-  {
-    name: 'Exercise', icon: 'mdi-run', active: false, route: '',
-    bg: '#FEF0E6', border: '#F5C19A', iconColor: '#C45B1A',
-    titleColor: '#9A3D0E', subColor: '#C45B1A', badgeText: '#9A3D0E'
-  },
-  {
-    name: 'Shopping list', icon: 'mdi-format-list-checks', active: false, route: '',
-    bg: '#E1F5EE', border: '#9FE1CB', iconColor: '#0F6E56',
-    titleColor: '#085041', subColor: '#0F6E56', badgeText: '#085041'
-  },
-  {
-    name: 'Recipes', icon: 'mdi-silverware-fork-knife', active: false, route: '',
-    bg: '#EAF3DE', border: '#C0DD97', iconColor: '#3B6D11',
-    titleColor: '#27500A', subColor: '#3B6D11', badgeText: '#27500A'
-  },
-  {
-    name: 'Events', icon: 'mdi-star-four-points', active: false, route: '',
-    bg: '#FAEEDA', border: '#FAC775', iconColor: '#854F0B',
-    titleColor: '#633806', subColor: '#854F0B', badgeText: '#633806'
-  },
-  {
-    name: 'Notion sync', icon: 'mdi-note-multiple-outline', active: false, route: '',
-    bg: '#E6F1FB', border: '#B5D4F4', iconColor: '#185FA5',
-    titleColor: '#0C447C', subColor: '#185FA5', badgeText: '#0C447C'
-  },
-  {
-    name: 'And more...', icon: 'mdi-dots-horizontal-circle-outline', active: false, route: '',
-    bg: '#F7F7F7', border: '#DCDCDC', iconColor: '#AAAAAA',
-    titleColor: '#888888', subColor: '#AAAAAA', badgeText: '#888888',
-    sub: 'Made with love, just for you ♡'
-  }
-]
+const dragState = ref(null)
+const localApps = ref([...apps])
 
-function goTo(i) {
-  current.value = (i + stripCards.value.length) % stripCards.value.length
-}
-function dragStart(e) { startX = e.clientX }
-function dragEnd(e) {
-  const diff = startX - e.clientX
-  if (Math.abs(diff) > 30) goTo(current.value + (diff > 0 ? 1 : -1))
-}
-function touchStart(e) { startX = e.touches[0].clientX }
-function touchEnd(e) {
-  const diff = startX - e.changedTouches[0].clientX
-  if (Math.abs(diff) > 30) goTo(current.value + (diff > 0 ? 1 : -1))
+const reorderEnabled = computed(() => preferences.value.app_reorder_enabled === '1')
+
+// Disable tile transitions until after the first preferences fetch lands and the
+// DOM has painted the correct order — prevents the "slide into place" on refresh.
+const transitionReady = ref(Object.keys(preferences.value).length > 0)
+if (!transitionReady.value) {
+  const unwatch = watch(preferences, async () => {
+    await nextTick()
+    transitionReady.value = true
+    unwatch()
+  })
 }
 
-onMounted(async () => {
-  timer = setInterval(() => goTo(current.value + 1), 4000)
+watch(() => preferences.value.app_grid_order, (val) => {
+  if (val) localStorage.setItem('app_grid_order', val)
+})
+
+function injectDynamicSubs(list) {
+  return list.map(app => {
+    if (app.name === 'Pantry' && pantryStats.value) {
+      const { count, expiringSoon } = pantryStats.value
+      const sub = count === 0
+        ? 'Nothing in pantry yet'
+        : expiringSoon > 0
+          ? `${count} item${count !== 1 ? 's' : ''} · ${expiringSoon} expiring soon`
+          : `${count} item${count !== 1 ? 's' : ''} in pantry`
+      return { ...app, sub }
+    }
+    return app
+  })
+}
+
+const displayApps = computed(() => {
+  if (dragState.value) return injectDynamicSubs(localApps.value)
+  const raw = preferences.value.app_grid_order ?? localStorage.getItem('app_grid_order')
+  if (!raw) return injectDynamicSubs(apps)
   try {
-    const res = await apiFetch(`${API}/period/calculations/summary`)
-    const s = await res.json()
+    const order = JSON.parse(raw)
+    const sorted = [...apps].sort((a, b) => {
+      const ai = order.indexOf(a.name)
+      const bi = order.indexOf(b.name)
+      return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi)
+    })
+    return injectDynamicSubs(sorted)
+  } catch { return injectDynamicSubs(apps) }
+})
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const todayStr = today.toISOString().split('T')[0]
+const ghostApp = computed(() =>
+  dragState.value ? apps.find(a => a.name === dragState.value.appName) ?? null : null
+)
 
-    let periodMsg = 'Start logging to see predictions'
-    if (s.currentCycle) {
-      const start = new Date(s.currentCycle.start_date + 'T00:00:00')
-      const dayNum = Math.floor((today - start) / 86400000) + 1
-      periodMsg = `Period is active — Day ${dayNum}`
-    } else if (s.nextPeriodDate) {
-      const days = Math.round((new Date(s.nextPeriodDate + 'T00:00:00') - today) / 86400000)
-      const w = s.confidenceWindow ? ` ±${s.confidenceWindow}d` : ''
-      if (days < 0)      periodMsg = `Period is ${Math.abs(days)} day${Math.abs(days) !== 1 ? 's' : ''} late${w}`
-      else if (days === 0) periodMsg = `Period is due today${w}`
-      else if (days === 1) periodMsg = `Period due tomorrow${w}`
-      else               periodMsg = `Next period in ${days} days${w}`
-    }
-    stripCards.value[0].message = periodMsg
-
-    if (!s.currentCycle && s.fertileWindow) {
-      const fStart = new Date(s.fertileWindow.start + 'T00:00:00')
-      const fEnd   = new Date(s.fertileWindow.end   + 'T00:00:00')
-      let fertileMsg = null
-
-      if (s.ovulationDate === todayStr) {
-        fertileMsg = 'Today is your predicted ovulation day'
-      } else if (today >= fStart && today <= fEnd) {
-        fertileMsg = `Fertile window active — ends ${fEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-      } else if (today < fStart) {
-        const daysUntil = Math.round((fStart - today) / 86400000)
-        if (daysUntil <= 5)
-          fertileMsg = `Fertile window starts in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`
-      }
-
-      if (fertileMsg) {
-        stripCards.value.splice(1, 0, {
-          label: 'Fertile window',
-          message: fertileMsg,
-          bg: '#E8F8F4', border: '#7ED4BC',
-          labelColor: '#0F6E56', messageColor: '#085041'
-        })
-      }
-    }
-
-    if (s.isIrregular) {
-      stripCards.value.splice(1, 0, {
-        label: 'Cycle alert',
-        message: 'Your recent cycles have been irregular',
-        bg: '#FFFBEB', border: '#FAC775',
-        labelColor: '#854F0B', messageColor: '#633806'
-      })
-    }
-  } catch {
-    stripCards.value[0].message = 'Could not load cycle data'
+const ghostStyle = computed(() => {
+  if (!dragState.value || !ghostApp.value) return {}
+  return {
+    left: dragState.value.ghostX + 'px',
+    top: dragState.value.ghostY + 'px',
+    width: dragState.value.tileWidth + 'px',
+    height: dragState.value.tileHeight + 'px',
+    background: ghostApp.value.bg,
+    borderColor: ghostApp.value.border,
   }
 })
 
-onUnmounted(() => clearInterval(timer))
+function onCardPointerDown(e, appName) {
+  if (!reorderEnabled.value) return
+  pointerOrigin.value = { x: e.clientX, y: e.clientY }
+  holdTimer.value = setTimeout(() => beginDrag(appName), 500)
+  window.addEventListener('pointermove', onWindowPointerMove)
+  window.addEventListener('pointerup', onWindowPointerUp)
+  window.addEventListener('pointercancel', onWindowPointerUp)
+}
+
+function beginDrag(appName) {
+  const grid = gridRef.value?.$el ?? gridRef.value
+  const card = grid?.querySelector(`[data-app="${appName}"]`)
+  if (!card || !pointerOrigin.value) return
+  const rect = card.getBoundingClientRect()
+  localApps.value = [...displayApps.value]
+  lastHoverApp = null
+  clearTimeout(insertDebounceTimer)
+  dragState.value = {
+    appName,
+    ghostX: rect.left, ghostY: rect.top,
+    offsetX: pointerOrigin.value.x - rect.left,
+    offsetY: pointerOrigin.value.y - rect.top,
+    tileWidth: rect.width, tileHeight: rect.height,
+  }
+}
+
+function onWindowPointerMove(e) {
+  if (!dragState.value) {
+    if (holdTimer.value && pointerOrigin.value) {
+      const dx = e.clientX - pointerOrigin.value.x
+      const dy = e.clientY - pointerOrigin.value.y
+      if (dx * dx + dy * dy > 64) clearHold()
+    }
+    return
+  }
+  e.preventDefault()
+  dragState.value.ghostX = e.clientX - dragState.value.offsetX
+  dragState.value.ghostY = e.clientY - dragState.value.offsetY
+  updateInsertPosition(e.clientX, e.clientY)
+}
+
+function updateInsertPosition(x, y) {
+  const grid = gridRef.value?.$el ?? gridRef.value
+  if (!grid || !dragState.value) return
+  const { appName } = dragState.value
+  const cards = Array.from(grid.querySelectorAll('[data-app]'))
+
+  let cursorOverApp = null
+  for (const card of cards) {
+    if (card.dataset.app === appName) continue
+    const rect = card.getBoundingClientRect()
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+      cursorOverApp = card.dataset.app
+      break
+    }
+  }
+
+  clearTimeout(insertDebounceTimer)
+  if (!cursorOverApp || cursorOverApp === lastHoverApp) return
+  insertDebounceTimer = setTimeout(() => {
+    if (!dragState.value) return
+    const currentIdx = localApps.value.findIndex(a => a.name === appName)
+    const targetIdx = localApps.value.findIndex(a => a.name === cursorOverApp)
+    if (currentIdx === targetIdx) return
+    const newOrder = [...localApps.value]
+    const [dragged] = newOrder.splice(currentIdx, 1)
+    newOrder.splice(targetIdx, 0, dragged)
+    localApps.value = newOrder
+    lastHoverApp = null
+  }, 80)
+}
+
+function onWindowPointerUp() {
+  clearTimeout(insertDebounceTimer)
+  if (dragState.value) {
+    dragOccurred = true
+    const orderJson = JSON.stringify(localApps.value.map(a => a.name))
+    localStorage.setItem('app_grid_order', orderJson)
+    updatePreference('app_grid_order', orderJson)
+    dragState.value = null
+  }
+  clearHold()
+  removeWindowListeners()
+}
+
+function onCardClick(app) {
+  if (dragOccurred) { dragOccurred = false; return }
+  if (app.active && app.route) router.push(app.route)
+}
+
+function clearHold() {
+  if (holdTimer.value) { clearTimeout(holdTimer.value); holdTimer.value = null }
+  pointerOrigin.value = null
+}
+
+function removeWindowListeners() {
+  window.removeEventListener('pointermove', onWindowPointerMove)
+  window.removeEventListener('pointerup', onWindowPointerUp)
+  window.removeEventListener('pointercancel', onWindowPointerUp)
+}
+
+onUnmounted(removeWindowListeners)
 </script>
 
 <style scoped>
@@ -387,139 +390,33 @@ onUnmounted(() => clearInterval(timer))
 /* ── Show/hide helpers ────────────────────────────────────────── */
 .mobile-only { display: block; }
 
-@media (max-width: 767px) {
+@media (max-width: 1279px) {
   .desktop-only { display: none !important; }
 }
 
-@media (min-width: 768px) {
+@media (min-width: 1280px) {
   .mobile-only { display: none !important; }
 }
 
-/* ── Left panel (desktop only) ────────────────────────────────── */
-.hub-left {
+/* ── Desktop home panel ───────────────────────────────────────── */
+.hub-desktop-panel {
   display: none;
 }
 
-@media (min-width: 768px) {
-  .hub-left {
-    display: flex;
-    flex: 1;
-    background: linear-gradient(160deg, #fff5f8 0%, #fdf0f5 40%, #f5f0fe 100%);
-    border-right: 1px solid #f0e0e8;
-    padding: 3rem;
-    align-items: flex-start;
-    justify-content: center;
+@media (min-width: 1280px) {
+  .hub-root {
+    display: block;
+    min-height: 100vh;
+    background: transparent;
   }
-}
 
-.hub-left-inner {
-  display: flex;
-  flex-direction: column;
-  max-width: 360px;
-  width: 100%;
-  height: 100%;
-  min-height: calc(100vh - 6rem);
-  justify-content: space-between;
-}
+  .hub-desktop-panel {
+    display: block;
+  }
 
-/* Brand block */
-.hub-brand {
-  margin-bottom: 2rem;
-}
-
-.hub-brand-icon {
-  width: 52px;
-  height: 52px;
-  background: #fff;
-  border: 1.5px solid #F4C0D1;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 1.1rem;
-  box-shadow: 0 2px 8px rgba(212, 83, 126, 0.08);
-}
-
-.hub-brand-title {
-  font-size: 26px;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin: 0 0 4px;
-  letter-spacing: -0.01em;
-}
-
-.hub-brand-sub {
-  font-size: 15px;
-  color: #888;
-  margin: 0 0 4px;
-  font-style: italic;
-}
-
-.hub-brand-date {
-  font-size: 12px;
-  color: #bbb;
-  margin: 0;
-}
-
-/* Status cards */
-.hub-status-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex: 1;
-  padding: 0.25rem 0;
-}
-
-.hub-status-card {
-  border: 2px solid;
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-
-.hub-status-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin: 0 0 3px;
-}
-
-.hub-status-msg {
-  font-size: 14px;
-  font-weight: 500;
-  margin: 0;
-}
-
-/* Footer */
-.hub-left-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 1.5rem;
-  border-top: 1px solid #f0e0e8;
-  margin-top: 1.5rem;
-}
-
-.hub-user-info {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: #bbb;
-}
-
-.hub-logout-btn {
-  font-size: 12px;
-  color: #bbb;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  transition: color 0.15s;
-}
-
-.hub-logout-btn:hover {
-  color: #D4537E;
+  .hub-main {
+    display: none !important;
+  }
 }
 
 /* ── Main panel ───────────────────────────────────────────────── */
@@ -528,32 +425,6 @@ onUnmounted(() => clearInterval(timer))
   min-width: 0;
   padding: 1.25rem;
   box-sizing: border-box;
-}
-
-@media (min-width: 768px) {
-  .hub-main {
-    flex: 0 0 460px;
-    padding: 2rem 2.5rem;
-    overflow-y: auto;
-    max-height: 100vh;
-  }
-}
-
-/* Desktop mini-header */
-.hub-desktop-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.25rem;
-}
-
-.section-label-top {
-  font-size: 10px;
-  font-weight: 600;
-  color: #bbb;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  margin: 0;
 }
 
 /* ── Mobile header ────────────────────────────────────────────── */
@@ -599,16 +470,6 @@ onUnmounted(() => clearInterval(timer))
 .dev-switch-btn:hover:not(.dev-switch-btn--pressed) { background: #f7dae6; }
 .dev-switch-btn--pressed { background: #f0c8d8; box-shadow: inset 0 2px 3px rgba(153, 53, 86, 0.2); transform: translateY(1px); }
 
-/* ── Strip (mobile) ───────────────────────────────────────────── */
-.strip-wrapper { margin-bottom: 1.25rem; }
-.strip-track { overflow: hidden; border-radius: 14px; cursor: grab; }
-.strip-inner { display: flex; transition: transform 0.35s cubic-bezier(.4,0,.2,1); }
-.strip-card { min-width: 100%; padding: 12px 14px; box-sizing: border-box; border: 3px solid; border-radius: 12px; }
-.strip-label { font-size: 10px; font-weight: 600; margin: 0 0 3px; letter-spacing: 0.06em; text-transform: uppercase; }
-.strip-message { font-size: 15px; font-weight: 500; margin: 0; }
-.strip-dots { display: flex; justify-content: center; gap: 5px; margin-top: 8px; }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: #ddd; cursor: pointer; display: inline-block; transition: background 0.2s; }
-.dot.active { background: #D4537E; }
 
 /* ── App grid ─────────────────────────────────────────────────── */
 .section-label { font-size: 10px; font-weight: 600; color: #bbb; letter-spacing: 0.07em; text-transform: uppercase; margin: 0 0 10px; }
@@ -628,5 +489,23 @@ onUnmounted(() => clearInterval(timer))
   font-size: 11px;
   color: #ccc;
   margin: 1rem 0 0;
+}
+
+/* ── Drag to reorder ──────────────────────────────────────────── */
+.app-card--reorderable { cursor: grab; user-select: none; touch-action: none; }
+.app-card--placeholder { opacity: 0 !important; pointer-events: none; }
+
+.tile-move { transition: transform 180ms ease-out; }
+
+.drag-ghost {
+  position: fixed;
+  border: 1px solid;
+  border-radius: 12px;
+  padding: 14px 12px;
+  pointer-events: none;
+  z-index: 1000;
+  transform: scale(1.04);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.13);
+  box-sizing: border-box;
 }
 </style>

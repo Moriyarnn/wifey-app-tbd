@@ -1,12 +1,13 @@
 # Period Tracker — Frontend
 
 ## Views
-- `src/views/period/PeriodHome.vue` — main screen
+- `src/views/period/PeriodHome.vue` — thin route wrapper; applies `AppLayout` with `PeriodColumn` as both slot content and panel prop
+- `src/views/period/PeriodColumn.vue` — full period tracker content; no shell dependencies; used as column 1 and in side panels on desktop
 - `src/views/period/PeriodLog.vue` — log entry view
 - `src/views/period/CycleDetail.vue` — single cycle detail
 
-## PeriodHome Layout
-1. **Header** — back button, today's date label, settings icon (opens SettingsSheet)
+## PeriodColumn Layout
+1. **Header** — back button (hidden at ≥1280px), today's date label, settings icon (opens SettingsSheet)
 2. **Status strip** — three tiles: Next period / Cycle day / Fertile window
 3. **Month navigation** — prev/next arrows + month label
 4. **Calendar grid** — days colored by period/fertile/ovulation status; tap a day to open the log panel

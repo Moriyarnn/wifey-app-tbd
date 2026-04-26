@@ -46,6 +46,9 @@ const runMigrations = () => {
 
 runMigrations()
 
+const { recomputeAllPredictions } = require('./routes/period/_calcHelpers')
+recomputeAllPredictions(db)
+
 // JWT secret — load from env, otherwise auto-generate and persist to data/secret.key
 const secretKeyPath = path.join(__dirname, 'data', 'secret.key')
 let jwtSecret = process.env.JWT_SECRET || ''
@@ -91,6 +94,12 @@ const calculationsRouter = require('./routes/period/calculations')(db)
 app.use('/api/period/cycles', requireAuth, cyclesRouter)
 app.use('/api/period/cycle-days', requireAuth, cycleDaysRouter)
 app.use('/api/period/calculations', requireAuth, calculationsRouter)
+
+// Pantry
+const pantryListRouter = require('./routes/pantry/list')(db)
+const pantryItemsRouter = require('./routes/pantry/pantry')(db)
+app.use('/api/pantry/list', requireAuth, pantryListRouter)
+app.use('/api/pantry', requireAuth, pantryItemsRouter)
 
 // Settings
 const settingsRouter = require('./routes/settings')(db)

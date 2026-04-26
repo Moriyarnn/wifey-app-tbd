@@ -70,6 +70,19 @@
             </div>
           </div>
 
+          <p class="sheet-section-label">App Grid</p>
+          <div class="prefs-list">
+            <div class="pref-row" @click="toggleReorder" style="cursor:pointer">
+              <div class="pref-label-group">
+                <span class="pref-label">App reordering</span>
+                <span class="pref-sublabel">Hold any card to drag and rearrange</span>
+              </div>
+              <div class="toggle" :class="{ on: preferences.app_reorder_enabled === '1' }">
+                <div class="toggle-knob" />
+              </div>
+            </div>
+          </div>
+
           <button class="close-btn" @click="$emit('update:modelValue', false)">Close</button>
         </div>
       </div>
@@ -104,6 +117,11 @@ onMounted(async () => {
 function togglePartnerNotes() {
   const next = settings.value.partner_can_read_notes === '1' ? '0' : '1'
   updateSetting('partner_can_read_notes', next)
+}
+
+function toggleReorder() {
+  const next = preferences.value.app_reorder_enabled === '1' ? '0' : '1'
+  updatePreference('app_reorder_enabled', next)
 }
 
 function toggleNotifications() {
@@ -197,6 +215,8 @@ const flowSwatches = computed(() => [
 .pref-row--input { align-items: center; gap: 12px; }
 .pref-input { flex: 1; border: none; border-bottom: 1px solid #e8e8e8; background: transparent; font-size: 13px; color: #333; text-align: right; padding: 2px 0; outline: none; min-width: 0; }
 .pref-input::placeholder { color: #ccc; }
+.pref-label-group { display: flex; flex-direction: column; gap: 2px; }
+.pref-sublabel { font-size: 11px; color: #bbb; }
 .close-btn { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #e0e0e0; background: #f5f5f5; font-size: 14px; color: #555; cursor: pointer; }
 
 .sheet-enter-active, .sheet-leave-active { transition: opacity 0.25s ease; }

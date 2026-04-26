@@ -385,6 +385,28 @@ const NOTIFICATION_TYPES = [
   },
 
   {
+    id: 'pantry_expiry_today',
+    dateKey: (today) => today,
+    check: (_summary, db) => {
+      const items = db.prepare(
+        "SELECT id FROM pantry WHERE status = 'active' AND expiry_date = date('now')"
+      ).all()
+      return items.length > 0
+    },
+    subject: () => '🧊 Items expiring today',
+    html: (_summary, db) => {
+      const items = db.prepare(
+        "SELECT name, quantity FROM pantry WHERE status = 'active' AND expiry_date = date('now') ORDER BY name ASC"
+      ).all()
+      const list = items.map(i => `<li>${i.name}${i.quantity ? ` (${i.quantity})` : ''}</li>`).join('')
+      return wrap(`
+        <h2 style="color:#c45309;">Items expiring today 🧊</h2>
+        <p>These items in your pantry expire today — use them up before they go to waste!</p>
+        <ul style="padding-left:1.5em;line-height:1.8;">${list}</ul>`)
+    }
+  },
+
+  {
     id: 'cycle_summary',
     dateKey: (today) => today,
     check: ({ today }, db) => {

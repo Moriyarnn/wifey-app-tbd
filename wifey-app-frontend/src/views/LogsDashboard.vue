@@ -1,7 +1,5 @@
 <template>
-  <v-app>
-    <v-main>
-      <div class="logs-wrapper">
+  <div class="logs-wrapper">
 
         <!-- Header -->
         <div class="logs-header">
@@ -136,9 +134,7 @@
 
         </v-tabs-window>
 
-      </div>
-    </v-main>
-  </v-app>
+  </div>
 </template>
 
 <script setup lang="ts">

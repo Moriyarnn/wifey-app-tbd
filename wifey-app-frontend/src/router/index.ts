@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HubView from '../views/HubView.vue'
+import MainScreen from '../components/MainScreen.vue'
 import { getToken } from '../api'
 
 const router = createRouter({
@@ -16,6 +17,12 @@ const router = createRouter({
       component: HubView
     },
     {
+      path: '/info',
+      name: 'info',
+      component: MainScreen,
+      props: { showBack: true }
+    },
+    {
       path: '/period',
       name: 'period',
       component: () => import('../views/period/PeriodHome.vue')
@@ -29,6 +36,11 @@ const router = createRouter({
       path: '/period/cycle/:id',
       name: 'period-cycle',
       component: () => import('../views/period/CycleDetail.vue')
+    },
+    {
+      path: '/pantry',
+      name: 'pantry',
+      component: () => import('../views/pantry/PantryHome.vue')
     },
     {
       path: '/logs',

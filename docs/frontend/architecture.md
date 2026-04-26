@@ -13,19 +13,59 @@ Native `fetch` with `window.location.hostname:3000/api` as the base URL.
 ## Styling
 Vuetify components + scoped CSS. No Tailwind.
 
+## Desktop Shell
+
+On desktop (≥1280px) the entire app is wrapped in a persistent two-pane layout managed by `DesktopShell.vue`:
+
+- **Left panel (440px)** — always-visible nav: header (title + greeting + user avatar + settings), `SummaryStrip`, app launcher grid, sign-out footer
+- **Right panel** — active route rendered via `<slot />`; fills remaining width
+
+On mobile and tablet (<1280px) the left panel is hidden (`display: none`) and the router-view fills the full screen. No JS detection — pure CSS media queries at 1279px.
+
+`App.vue` wraps `<router-view />` inside `<DesktopShell>`. `App.vue` is the single owner of `<v-app><v-main>` — feature views must not nest their own. Feature views are unaware of the shell; they render the same whether standalone (mobile) or slot-embedded (desktop).
+
+## Feature View Multi-Column Layout
+
+Feature views (period tracker, pantry, sleep tracker, etc.) wrap their content in `AppLayout.vue` to get a multi-column grid on wide screens. The feature's content goes in the slot and occupies column 1. Side panels are populated via the optional `panel` prop — pass a component reference and `AppLayout` renders it in columns 2 and 3 using `<component :is>`.
+
+| Breakpoint | Layout |
+|---|---|
+| <1280px | Transparent wrapper — no layout impact |
+| ≥1280px | 2-col grid: `minmax(0, 560px)` + `1fr` |
+| ≥1600px | 3-col grid: `minmax(0, 560px)` + `1fr` + `1fr` |
+
+**Pattern** (see `PeriodHome.vue`):
+```vue
+<AppLayout :panel="FeatureColumn">
+  <FeatureColumn />
+</AppLayout>
+```
+
+Each feature is split into two files: a thin route-wrapper (`FeatureHome.vue`) that applies `AppLayout`, and a pure content component (`FeatureColumn.vue`) with no shell dependencies. `FeatureColumn` is used both as the main slot content and passed as the `panel` prop for side columns.
+
+HubView and Settings are single full-width views — they do not use `AppLayout`.
+
 ## Views & Components
 ```
 src/
 ├── views/
-│   ├── HubView.vue              # Main hub / landing
+│   ├── HubView.vue              # Mobile hub; desktop: full-height branding panel (≥1280px)
+│   ├── LogsDashboard.vue        # Admin log viewer at /logs
 │   └── period/
-│       ├── PeriodHome.vue       # Calendar, summary strip, day log/edit/delete panel
+│       ├── PeriodHome.vue       # Thin route wrapper: AppLayout + PeriodColumn
+│       ├── PeriodColumn.vue     # Period tracker content (calendar, panels, strip)
 │       ├── PeriodLog.vue
 │       └── CycleDetail.vue
-└── components/
-    ├── SettingsSheet.vue        # Bottom sheet — theme changer (UI only, issue #10)
-    ├── OnboardingTutorial.vue   # 3-slide animated tutorial modal, shown once on first visit
-    └── LoggingHints.vue        # Compact always-visible hint strip with mini animations
+├── components/
+│   ├── AppLayout.vue            # Multi-column desktop wrapper for feature views
+│   ├── DesktopShell.vue         # Persistent two-pane shell wrapper (≥1280px)
+│   ├── SummaryStrip.vue         # Auto-rotating status carousel; used by shell + HubView
+│   ├── SettingsSheet.vue        # Bottom sheet — settings (wired in v0.7.0)
+│   ├── OnboardingTutorial.vue   # 3-slide animated tutorial modal, shown once on first visit
+│   └── LoggingHints.vue         # Compact always-visible hint strip with mini animations
+└── composables/
+    ├── useApps.ts               # Shared apps array (used by DesktopShell + HubView)
+    └── usePreferences.ts        # Per-user preferences cache
 ```
 
 ## Feature Docs
@@ -34,7 +74,9 @@ src/
 - [Anniversaries](features/anniversaries.md)
 - [Recipes](features/recipes.md)
 
+## Layout
+- [AppLayout — Column Layout System](app-layout.md)
+
 ## Theme
 - Theme changer lives in `SettingsSheet.vue`
-- Intended to propagate via CSS custom properties (`--color-accent`, `--color-bg` on `:root`) across all views
-- Not yet wired to real functionality (issue #10)
+- Flow hue propagates via `--flow-hue` CSS custom property on `:root`

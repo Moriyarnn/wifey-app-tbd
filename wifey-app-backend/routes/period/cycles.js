@@ -2,6 +2,7 @@ const express = require('express')
 const router = express.Router()
 const { logPeriodEvent } = require('../../logger')
 const { requireOwner } = require('../../middleware/auth')
+const { recomputeAllPredictions } = require('./_calcHelpers')
 
 module.exports = (db) => {
   // Get all cycles with last logged day
@@ -33,6 +34,7 @@ module.exports = (db) => {
     const id = result.lastInsertRowid
     logPeriodEvent(db, { entity: 'cycle', entity_id: id, action: 'create', cycle_id: id, date: start_date })
     res.json({ id, start_date })
+    setImmediate(() => recomputeAllPredictions(db))
   })
 
   // Move a period start to an earlier date
@@ -46,6 +48,7 @@ module.exports = (db) => {
     db.prepare('UPDATE cycles SET start_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(start_date, id)
     logPeriodEvent(db, { entity: 'cycle', entity_id: id, action: 'update', cycle_id: id, date: start_date })
     res.json({ success: true })
+    setImmediate(() => recomputeAllPredictions(db))
   })
 
   // End a period (also cascade-deletes orphaned cycle_days after end_date)
@@ -80,6 +83,7 @@ module.exports = (db) => {
       .run(newStart, newEnd, id)
     logPeriodEvent(db, { entity: 'cycle', entity_id: id, action: 'update', cycle_id: id, date: newStart })
     res.json({ id, start_date: newStart, end_date: newEnd })
+    setImmediate(() => recomputeAllPredictions(db))
   })
 
   // Set or clear ovulation date for a cycle
@@ -87,12 +91,14 @@ module.exports = (db) => {
     const { ovulation_date } = req.body
     db.prepare('UPDATE cycles SET ovulation_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(ovulation_date ?? null, req.params.id)
     res.json({ success: true })
+    setImmediate(() => recomputeAllPredictions(db))
   })
 
   // Delete a cycle (also removes all cycle_days and their symptoms)
   router.delete('/:id', requireOwner, (req, res) => {
     const id = Number(req.params.id)
     const cycle = db.prepare('SELECT start_date FROM cycles WHERE id = ?').get(id)
+
     const days = db.prepare('SELECT id FROM cycle_days WHERE cycle_id = ?').all(id)
     if (days.length > 0) {
       const placeholders = days.map(() => '?').join(',')
@@ -102,6 +108,7 @@ module.exports = (db) => {
     db.prepare('DELETE FROM cycles WHERE id = ?').run(id)
     if (cycle) logPeriodEvent(db, { entity: 'cycle', entity_id: id, action: 'delete', cycle_id: id, date: cycle.start_date })
     res.json({ success: true })
+    setImmediate(() => recomputeAllPredictions(db))
   })
 
   return router

@@ -1,7 +1,10 @@
 <template>
   <v-app>
     <v-main>
-      <router-view />
+      <DesktopShell v-if="route.name !== 'login'">
+        <router-view />
+      </DesktopShell>
+      <router-view v-else />
     </v-main>
     <Teleport to="body">
       <div v-if="envLabel" class="env-badge">{{ envLabel }}</div>
@@ -10,6 +13,9 @@
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
+import DesktopShell from './components/DesktopShell.vue'
+const route = useRoute()
 const env = import.meta.env.VITE_ENV
 const envLabel = env === 'dev' ? 'DEV' : env === 'uat' ? 'UAT' : null
 </script>
